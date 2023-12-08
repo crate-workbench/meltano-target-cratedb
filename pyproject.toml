@@ -11,21 +11,22 @@ default-tag = "0.0.0"
 
 [project]
 name = "meltano-target-cratedb"
-description = "A Singer target for CrateDB, built with the Meltano SDK for Singer Targets, based on the PostgreSQL target"
+description = "A Singer target for CrateDB, built with the Meltano SDK, and based on the Meltano PostgreSQL target."
 readme = "README.md"
 keywords = [
   "cratedb",
   "data-loading",
   "data-processing",
+  "data-toolkit",
   "data-transfer",
+  "data-transformation",
   "ELT",
   "ETL",
   "io",
   "Meltano",
   "Meltano SDK",
-  "Postgres",
+  "PostgreSQL",
   "Singer",
-  "toolkit",
 ]
 license = { text = "MIT" }
 authors = [
