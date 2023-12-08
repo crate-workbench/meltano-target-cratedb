@@ -1,5 +1,4 @@
 """ Attempt at making some standard Target Tests. """
-# flake8: noqa
 import copy
 import io
 from contextlib import redirect_stdout
@@ -11,7 +10,6 @@ from singer_sdk.exceptions import MissingKeyPropertiesError
 from singer_sdk.testing import sync_end_to_end
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.types import TEXT, TIMESTAMP
-
 from target_postgres.tests.samples.aapl.aapl import Fundamentals
 from target_postgres.tests.samples.sample_tap_countries.countries_tap import (
     SampleTapCountries,
@@ -22,7 +20,7 @@ from target_cratedb.patch import polyfill_refresh_after_dml_engine
 from target_cratedb.target import TargetCrateDB
 
 try:
-    from importlib.resources import files as resource_files
+    from importlib.resources import files as resource_files  # type: ignore[attr-defined]
 except ImportError:
     from importlib_resources import files as resource_files  # type: ignore[no-redef]
 
@@ -118,8 +116,9 @@ def singer_file_to_target(file_name, target) -> None:
     with redirect_stdout(buf):
         with open(file_path) as f:
             for line in f:
-                print(line.rstrip("\r\n"))  # File endings are here,
-                # and print adds another line ending so we need to remove one.
+                # File endings are here, and print adds another line
+                # ending, so we need to remove one.
+                print(line.rstrip("\r\n"))  # noqa: T201
     buf.seek(0)
     target.listen(buf)
 
@@ -402,7 +401,9 @@ def test_encoded_string_data(cratedb_target):
     https://www.postgresql.org/docs/current/functions-string.html#:~:text=chr(0)%20is%20disallowed%20because%20text%20data%20types%20cannot%20store%20that%20character.
     chr(0) is disallowed because text data types cannot store that character.
 
-    Note you will recieve a  ValueError: A string literal cannot contain NUL (0x00) characters. Which seems like a reasonable error.
+    Note you will recieve a  ValueError: A string literal cannot contain NUL (0x00) characters.
+    Which seems like a reasonable error.
+
     See issue https://github.com/MeltanoLabs/target-postgres/issues/60 for more details.
     """
 
@@ -412,7 +413,11 @@ def test_encoded_string_data(cratedb_target):
 
 @pytest.mark.skip("Fails with: SQLParseException[Limit of total fields [1000] in index [melty.aapl] has been exceeded]")
 def test_tap_appl(cratedb_target):
-    """Expect to fail with ValueError due to primary key https://github.com/MeltanoLabs/target-postgres/issues/54"""
+    """
+    Expect to fail with ValueError due to primary key error.
+
+    https://github.com/MeltanoLabs/target-postgres/issues/54
+    """
     file_name = "tap_aapl.singer"
     singer_file_to_target(file_name, cratedb_target)
 
@@ -444,6 +449,7 @@ def test_anyof(cratedb_target):
     with engine.connect() as connection:
         meta = sqlalchemy.MetaData()
         table = sqlalchemy.Table("commits", meta, schema=schema, autoload_with=connection)
+        # ruff: noqa: ERA001
         for column in table.c:
             # {"type":"string"}
             if column.name == "id":
@@ -584,7 +590,9 @@ def test_activate_version_deletes_data_properly(cratedb_target):
     with engine.connect() as connection:
         result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 9
-    # Only has a schema and one activate_version message, should delete all records as it's a higher version than what's currently in the table
+
+    # Only has a schema and one activate_version message, should delete all records
+    # as it's a higher version than what's currently in the table.
     file_name = f"{table_name}_2.singer"
     singer_file_to_target(file_name, pg_hard_delete)
     with engine.connect() as connection:
