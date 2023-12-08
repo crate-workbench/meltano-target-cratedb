@@ -1,0 +1,5 @@
+.coverage
+.idea
+.venv*
+*.egg-info
+coverage.xml
