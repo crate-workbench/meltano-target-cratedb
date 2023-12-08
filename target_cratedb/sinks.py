@@ -1,11 +1,11 @@
 """CrateDB target sink class, which handles writing streams."""
 import datetime
 import time
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import sqlalchemy
 from pendulum import now
-from sqlalchemy import Column, bindparam, insert, select, update
+from sqlalchemy import Column, Executable, MetaData, Table, bindparam, insert, select, update
 from target_postgres.sinks import PostgresSink
 
 from target_cratedb.connector import CrateDBConnector
@@ -296,3 +296,22 @@ class CrateDBSink(PostgresSink):
                 bindparam("version", value=new_version, type_=integer_type),
             )
             connection.execute(query)
+
+    def generate_insert_statement(
+        self,
+        full_table_name: str,
+        columns: List[Column],
+    ) -> Union[str, Executable]:
+        """Generate an insert statement for the given records.
+
+        Args:
+            full_table_name: the target table name.
+            schema: the JSON schema for the new table.
+
+        Returns:
+            An insert statement.
+        """
+        # FIXME:
+        metadata = MetaData(schema=self.schema_name)
+        table = Table(full_table_name, metadata, *columns)
+        return insert(table)
