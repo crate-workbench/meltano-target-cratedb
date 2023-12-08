@@ -1,10 +1,8 @@
 """ Attempt at making some standard Target Tests. """
 # flake8: noqa
 import copy
-import importlib.resources
 import io
 from contextlib import redirect_stdout
-from pathlib import Path
 
 import jsonschema
 import pytest
@@ -19,9 +17,14 @@ from target_postgres.tests.samples.sample_tap_countries.countries_tap import (
     SampleTapCountries,
 )
 
-from target_cratedb.patch import polyfill_refresh_after_dml_engine
 from target_cratedb.connector import CrateDBConnector
+from target_cratedb.patch import polyfill_refresh_after_dml_engine
 from target_cratedb.target import TargetCrateDB
+
+try:
+    from importlib.resources import files as resource_files
+except ImportError:
+    from importlib_resources import files as resource_files  # type: ignore[no-redef]
 
 
 @pytest.fixture(scope="session")
@@ -110,7 +113,7 @@ def singer_file_to_target(file_name, target) -> None:
         file_name: name to file in .tests/data_files to be sent into target
         Target: Target to pass data from file_path into..
     """
-    file_path = importlib.resources.files("target_postgres.tests") / "data_files" / file_name
+    file_path = resource_files("target_postgres.tests") / "data_files" / file_name
     buf = io.StringIO()
     with redirect_stdout(buf):
         with open(file_path) as f:
