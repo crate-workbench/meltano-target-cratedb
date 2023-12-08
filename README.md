@@ -11,8 +11,8 @@
 
 ## About
 
-A Singer target for [CrateDB], built with the Meltano SDK for Singer Targets,
-and based on the PostgreSQL target [meltanolabs-target-postgres].
+A [Singer] target for [CrateDB], built with the [Meltano SDK] for custom extractors
+and loaders, and based on the PostgreSQL target [meltanolabs-target-postgres].
 
 
 ## Details
@@ -24,6 +24,11 @@ CrateDB is a distributed and scalable SQL database for storing and analyzing
 massive amounts of data in near real-time, even with complex queries. It is
 PostgreSQL-compatible, and based on Apache Lucene.
 
+Singer and Meltano provide foundational components and an integration engine for
+composable Open Source ETL with 600+ connectors
+
 
 [CrateDB]: https://github.com/crate/crate
+[Meltano SDK]: https://github.com/meltano/sdk
 [meltanolabs-target-postgres]: https://pypi.org/project/meltanolabs-target-postgres/
+[Singer]: https://github.com/singer-io
