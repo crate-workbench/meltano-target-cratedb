@@ -35,6 +35,11 @@ class CrateDBConnector(PostgresConnector):
     allow_temp_tables: bool = False  # Whether temp tables are supported.
 
     def create_engine(self) -> sqlalchemy.Engine:
+        """
+        Create an SQLAlchemy engine object.
+
+        Note: Needs to be patched to establish a polyfill which will synchronize write operations.
+        """
         engine = super().create_engine()
         polyfill_refresh_after_dml_engine(engine)
         return engine
@@ -42,6 +47,8 @@ class CrateDBConnector(PostgresConnector):
     @staticmethod
     def to_sql_type(jsonschema_type: dict) -> sqlalchemy.types.TypeEngine:
         """Return a JSON Schema representation of the provided type.
+
+        Note: Needs to be patched to invoke other static methods on `CrateDBConnector`.
 
         By default will call `typing.to_sql_type()`.
 
@@ -89,6 +96,8 @@ class CrateDBConnector(PostgresConnector):
     def pick_individual_type(jsonschema_type: dict):
         """Select the correct sql type assuming jsonschema_type has only a single type.
 
+        Note: Needs to be patched to supply handlers for `object` and `array`.
+
         Args:
             jsonschema_type: A jsonschema_type array containing only a single type.
 
@@ -114,6 +123,8 @@ class CrateDBConnector(PostgresConnector):
     @staticmethod
     def pick_best_sql_type(sql_type_array: list):
         """Select the best SQL type from an array of instances of SQL type classes.
+
+        Note: Needs to be patched to supply handler for `ObjectTypeImpl`.
 
         Args:
             sql_type_array: The array of instances of SQL type classes.
@@ -151,6 +162,8 @@ class CrateDBConnector(PostgresConnector):
         sql_types: t.Iterable[sqlalchemy.types.TypeEngine],
     ) -> list[sqlalchemy.types.TypeEngine]:
         """Return the input types sorted from most to least compatible.
+
+        Note: Needs to be patched to supply handlers for `_ObjectArray` and `NOTYPE`.
 
         For example, [Smallint, Integer, Datetime, String, Double] would become
         [Unicode, String, Double, Integer, Smallint, Datetime].
@@ -201,6 +214,8 @@ class CrateDBConnector(PostgresConnector):
     ) -> sqlalchemy.Table:
         """Copy table structure.
 
+        Note: Needs to be patched to prevent `Primary key columns cannot be nullable` errors.
+
         Args:
             full_table_name: the target table name potentially including schema
             from_table: the  source table
@@ -224,3 +239,9 @@ class CrateDBConnector(PostgresConnector):
         new_table = sqlalchemy.Table(table_name, meta, *columns)
         new_table.create(bind=connection)
         return new_table
+
+    def prepare_schema(self, schema_name: str) -> None:
+        """
+        Don't emit `CREATE SCHEMA` statements to CrateDB.
+        """
+        pass
