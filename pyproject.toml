@@ -94,10 +94,13 @@ dynamic = [
 dependencies = [
   "crate[sqlalchemy]",
   "cratedb-toolkit",
-  'importlib-resources; python_version < "3.9"',
-  "meltanolabs-target-postgres==0.0.9",
+  'importlib-resources; python_version < "3.9"', # "meltanolabs-target-postgres==0.0.9",
+  "meltanolabs-target-postgres@ git+https://github.com/singer-contrib/meltanolabs-target-postgres.git@pgvector",
 ]
 [project.optional-dependencies]
+all = [
+  "meltano-target-cratedb[vector]",
+]
 develop = [
   "black<24",
   "mypy==1.7.1",
@@ -114,6 +117,9 @@ test = [
   "pytest<8",
   "pytest-cov<5",
   "pytest-mock<4",
+]
+vector = [
+  "numpy",
 ]
 [project.urls]
 changelog = "https://github.com/crate-workbench/meltano-target-cratedb/blob/main/CHANGES.md"

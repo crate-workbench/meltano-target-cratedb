@@ -123,6 +123,27 @@ LIMIT
 ```
 
 
+## Vector Store Support
+
+In order to support CrateDB's vector store feature, i.e. its `FLOAT_VECTOR`
+data type, you will need to install `numpy`. It has been added to an "extra"
+of the Python package, called `vector`.
+
+When installing the package using pip, this would apply:
+```
+pip install 'meltano-target-cratedb[vector]'
+```
+
+When installing the package using the Meltano's project definition, this
+would probably be the right way to write it down, but it hasn't been verified
+yet.
+```yaml
+- name: target-cratedb
+  variant: cratedb
+  pip_url: meltano-target-cratedb[vector]
+```
+
+
 ## Development
 
 In order to work on this adapter dialect on behalf of a real pipeline definition,
