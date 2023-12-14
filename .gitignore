@@ -2,5 +2,6 @@
 .idea
 .venv*
 *.egg-info
-build
 coverage.xml
+build
+dist
