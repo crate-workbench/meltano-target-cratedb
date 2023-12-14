@@ -1,4 +1,6 @@
 """ Attempt at making some standard Target Tests. """
+from __future__ import annotations
+
 import copy
 import io
 from contextlib import redirect_stdout
@@ -6,23 +8,27 @@ from contextlib import redirect_stdout
 import jsonschema
 import pytest
 import sqlalchemy
+import sqlalchemy as sa
+from crate.client.sqlalchemy.types import ObjectTypeImpl
 from singer_sdk.exceptions import MissingKeyPropertiesError
 from singer_sdk.testing import sync_end_to_end
-from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.types import TEXT, TIMESTAMP
 from target_postgres.tests.samples.aapl.aapl import Fundamentals
 from target_postgres.tests.samples.sample_tap_countries.countries_tap import (
     SampleTapCountries,
 )
+from target_postgres.tests.test_target_postgres import AssertionHelper
 
 from target_cratedb.connector import CrateDBConnector
-from target_cratedb.patch import polyfill_refresh_after_dml_engine
+from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
 from target_cratedb.target import TargetCrateDB
 
 try:
     from importlib.resources import files as resource_files  # type: ignore[attr-defined]
 except ImportError:
     from importlib_resources import files as resource_files  # type: ignore[no-redef]
+
+
+METADATA_COLUMN_PREFIX = "__sdc"
 
 
 @pytest.fixture(scope="session")
@@ -89,6 +95,14 @@ def create_engine(target_cratedb: TargetCrateDB) -> sqlalchemy.engine.Engine:
 @pytest.fixture(scope="session", autouse=True)
 def initialize_database(cratedb_config):
     delete_table_names = [
+        "melty.array_boolean",
+        "melty.array_float",
+        "melty.array_float_vector",
+        "melty.array_number",
+        "melty.array_string",
+        "melty.array_timestamp",
+        "melty.foo",
+        "melty.object_mixed",
         "melty.test_new_array_column",
         "melty.test_schema_updates",
     ]
@@ -98,6 +112,11 @@ def initialize_database(cratedb_config):
         for delete_table_name in delete_table_names:
             conn.exec_driver_sql(f"DROP TABLE IF EXISTS {delete_table_name};")
         conn.exec_driver_sql("CREATE TABLE IF NOT EXISTS melty.foo (a INT);")
+
+
+@pytest.fixture
+def helper(cratedb_target) -> AssertionHelper:
+    return AssertionHelper(target=cratedb_target, metadata_column_prefix=METADATA_COLUMN_PREFIX)
 
 
 def singer_file_to_target(file_name, target) -> None:
@@ -124,14 +143,6 @@ def singer_file_to_target(file_name, target) -> None:
 
 
 # TODO should set schemas for each tap individually so we don't collide
-
-
-def remove_metadata_columns(row: dict) -> dict:
-    new_row = {}
-    for column in row.keys():
-        if not column.startswith("_SDC"):
-            new_row[column] = row[column]
-    return new_row
 
 
 def test_sqlalchemy_url_config(cratedb_config):
@@ -272,7 +283,7 @@ def test_multiple_state_messages(cratedb_target):
 
 
 @pytest.mark.skip("Upserts do not work yet")
-def test_relational_data(cratedb_target):
+def test_relational_data(cratedb_target, helper):
     engine = create_engine(cratedb_target)
     file_name = "user_location_data.singer"
     singer_file_to_target(file_name, cratedb_target)
@@ -296,7 +307,7 @@ def test_relational_data(cratedb_target):
 
         full_table_name = f"{schema_name}.test_users"
         result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name} ORDER BY id"))
-        result_dict = [remove_metadata_columns(row._asdict()) for row in result.all()]
+        result_dict = [helper.remove_metadata_columns(row._asdict()) for row in result.all()]
         assert result_dict == expected_test_users
 
         expected_test_locations = [
@@ -309,7 +320,7 @@ def test_relational_data(cratedb_target):
 
         full_table_name = f"{schema_name}.test_locations"
         result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name} ORDER BY id"))
-        result_dict = [remove_metadata_columns(row._asdict()) for row in result.all()]
+        result_dict = [helper.remove_metadata_columns(row._asdict()) for row in result.all()]
         assert result_dict == expected_test_locations
 
         expected_test_user_in_location = [
@@ -347,7 +358,7 @@ def test_relational_data(cratedb_target):
 
         full_table_name = f"{schema_name}.test_user_in_location"
         result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name} ORDER BY id"))
-        result_dict = [remove_metadata_columns(row._asdict()) for row in result.all()]
+        result_dict = [helper.remove_metadata_columns(row._asdict()) for row in result.all()]
         assert result_dict == expected_test_user_in_location
 
 
@@ -392,6 +403,109 @@ def test_duplicate_records(cratedb_target):
 def test_array_data(cratedb_target):
     file_name = "array_data.singer"
     singer_file_to_target(file_name, cratedb_target)
+
+
+def test_array_boolean(cratedb_target, helper):
+    file_name = "array_boolean.singer"
+    singer_file_to_target(file_name, cratedb_target)
+    row = {"id": 1, "value": [True, False]}
+    helper.verify_data("array_boolean", 3, "id", row)
+    helper.verify_schema(
+        "array_boolean",
+        check_columns={
+            "id": {"type": sa.BIGINT},
+            "value": {"type": sqlalchemy.types.ARRAY},
+        },
+    )
+
+
+def test_array_float_vector(cratedb_target, helper):
+    file_name = "array_float_vector.singer"
+    singer_file_to_target(file_name, cratedb_target)
+    row = {
+        "id": 1,
+        "value": [1.1, 2.1, 1.1, 1.3],
+    }
+    helper.verify_data("array_float_vector", 3, "id", row)
+
+    from target_cratedb.sqlalchemy.vector import FloatVector
+
+    helper.verify_schema(
+        "array_float_vector",
+        check_columns={
+            "id": {"type": sa.BIGINT},
+            "value": {"type": FloatVector},
+        },
+    )
+
+
+def test_array_number(cratedb_target, helper):
+    file_name = "array_number.singer"
+    singer_file_to_target(file_name, cratedb_target)
+    row = {"id": 1, "value": [42.42, 84.84, 23]}
+    helper.verify_data("array_number", 3, "id", row)
+    helper.verify_schema(
+        "array_number",
+        check_columns={
+            "id": {"type": sa.BIGINT},
+            "value": {"type": sqlalchemy.types.ARRAY},
+        },
+    )
+
+
+def test_array_string(cratedb_target, helper):
+    file_name = "array_string.singer"
+    singer_file_to_target(file_name, cratedb_target)
+    row = {"id": 1, "value": ["apple", "orange", "pear"]}
+    helper.verify_data("array_string", 4, "id", row)
+    helper.verify_schema(
+        "array_string",
+        check_columns={
+            "id": {"type": sa.BIGINT},
+            "value": {"type": sqlalchemy.types.ARRAY},
+        },
+    )
+
+
+def test_array_timestamp(cratedb_target, helper):
+    file_name = "array_timestamp.singer"
+    singer_file_to_target(file_name, cratedb_target)
+    row = {"id": 1, "value": ["2023-12-13T01:15:02", "2023-12-13T01:16:02"]}
+    helper.verify_data("array_timestamp", 3, "id", row)
+    helper.verify_schema(
+        "array_timestamp",
+        check_columns={
+            "id": {"type": sa.BIGINT},
+            "value": {"type": sqlalchemy.types.ARRAY},
+        },
+    )
+
+
+def test_object_mixed(cratedb_target, helper):
+    file_name = "object_mixed.singer"
+    singer_file_to_target(file_name, cratedb_target)
+    row = {
+        "id": 1,
+        "value": {
+            "string": "foo",
+            "integer": 42,
+            "float": 42.42,
+            "timestamp": "2023-12-13T01:15:02",
+            "array_boolean": [True, False],
+            "array_float": [42.42, 84.84],
+            "array_integer": [42, 84],
+            "array_string": ["foo", "bar"],
+            "nested_object": {"foo": "bar"},
+        },
+    }
+    helper.verify_data("object_mixed", 1, "id", row)
+    helper.verify_schema(
+        "object_mixed",
+        check_columns={
+            "id": {"type": sa.BIGINT},
+            "value": {"type": ObjectTypeImpl},
+        },
+    )
 
 
 # TODO test that data is correct
@@ -453,28 +567,28 @@ def test_anyof(cratedb_target):
         for column in table.c:
             # {"type":"string"}
             if column.name == "id":
-                assert isinstance(column.type, TEXT)
+                assert isinstance(column.type, sa.TEXT)
 
             # Any of nullable date-time.
             # Note that postgres timestamp is equivalent to jsonschema date-time.
             # {"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}]}
             if column.name in {"authored_date", "committed_date"}:
-                assert isinstance(column.type, TIMESTAMP)
+                assert isinstance(column.type, sa.TIMESTAMP)
 
             # Any of nullable array of strings or single string.
             # {"anyOf":[{"type":"array","items":{"type":["null","string"]}},{"type":"string"},{"type":"null"}]}
             if column.name == "parent_ids":
-                assert isinstance(column.type, ARRAY)
+                assert isinstance(column.type, sa.ARRAY)
 
             # Any of nullable string.
             # {"anyOf":[{"type":"string"},{"type":"null"}]}
             if column.name == "commit_message":
-                assert isinstance(column.type, TEXT)
+                assert isinstance(column.type, sa.TEXT)
 
             # Any of nullable string or integer.
             # {"anyOf":[{"type":"string"},{"type":"integer"},{"type":"null"}]}
             if column.name == "legacy_id":
-                assert isinstance(column.type, TEXT)
+                assert isinstance(column.type, sa.TEXT)
 
 
 def test_new_array_column(cratedb_target):
@@ -556,7 +670,7 @@ def test_activate_version_soft_delete(cratedb_target):
         assert result.rowcount == 9
 
         result = connection.execute(
-            sqlalchemy.text(f'SELECT * FROM {full_table_name} where "__sdc_deleted_at" is NOT NULL')
+            sqlalchemy.text(f'SELECT * FROM {full_table_name} where "{METADATA_COLUMN_PREFIX}_deleted_at" is NOT NULL')
         )
         assert result.rowcount == 2
 

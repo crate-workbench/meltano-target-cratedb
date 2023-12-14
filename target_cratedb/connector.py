@@ -6,14 +6,18 @@ from builtins import issubclass
 from datetime import datetime
 
 import sqlalchemy
+import sqlalchemy as sa
 from crate.client.sqlalchemy.types import ObjectType, ObjectTypeImpl, _ObjectArray
 from singer_sdk import typing as th
-from sqlalchemy.dialects.postgresql import ARRAY, BIGINT
+from singer_sdk.helpers._typing import is_array_type, is_boolean_type, is_integer_type, is_number_type, is_object_type
 from sqlalchemy.types import (
+    ARRAY,
+    BIGINT,
     BOOLEAN,
     DATE,
     DATETIME,
     DECIMAL,
+    FLOAT,
     INTEGER,
     TEXT,
     TIME,
@@ -22,7 +26,8 @@ from sqlalchemy.types import (
 )
 from target_postgres.connector import NOTYPE, PostgresConnector
 
-from target_cratedb.patch import polyfill_refresh_after_dml_engine
+from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
+from target_cratedb.sqlalchemy.vector import FloatVector
 
 
 class CrateDBConnector(PostgresConnector):
@@ -111,8 +116,52 @@ class CrateDBConnector(PostgresConnector):
         if "object" in jsonschema_type["type"]:
             return ObjectType
         if "array" in jsonschema_type["type"]:
-            # TODO: Handle other inner-types as well?
+            # Select between different kinds of `ARRAY` data types.
+            #
+            # This currently leverages an unspecified definition for the Singer SCHEMA,
+            # using the `additionalProperties` attribute to convey additional type
+            # information, agnostic of the target database.
+            #
+            # In this case, it is about telling different kinds of `ARRAY` types apart:
+            # Either it is a vanilla `ARRAY`, to be stored into a `jsonb[]` type, or,
+            # alternatively, it can be a "vector" kind `ARRAY` of floating point
+            # numbers, effectively what pgvector is storing in its `VECTOR` type.
+            #
+            # Still, `type: "vector"` is only a surrogate label here, because other
+            # database systems may use different types for implementing the same thing,
+            # and need to translate accordingly.
+            """
+            Schema override rule in `meltano.yml`:
+
+            type: "array"
+            items:
+              type: "number"
+            additionalProperties:
+              storage:
+                type: "vector"
+                dim: 4
+
+            Produced schema annotation in `catalog.json`:
+
+            {"type": "array",
+             "items": {"type": "number"},
+             "additionalProperties": {"storage": {"type": "vector", "dim": 4}}}
+            """
+            if "additionalProperties" in jsonschema_type and "storage" in jsonschema_type["additionalProperties"]:
+                storage_properties = jsonschema_type["additionalProperties"]["storage"]
+                if "type" in storage_properties and storage_properties["type"] == "vector":
+                    # On PostgreSQL/pgvector, use the corresponding type definition
+                    # from its SQLAlchemy dialect.
+                    return FloatVector(storage_properties["dim"])
+
+            # Discover/translate inner types.
+            inner_type = resolve_array_inner_type(jsonschema_type)
+            if inner_type is not None:
+                return ARRAY(inner_type)
+
+            # When type discovery fails, assume `TEXT`.
             return ARRAY(TEXT())
+
         if jsonschema_type.get("format") == "date-time":
             return TIMESTAMP()
         individual_type = th.to_sql_type(jsonschema_type)
@@ -139,20 +188,18 @@ class CrateDBConnector(PostgresConnector):
             DATE,
             TIME,
             DECIMAL,
+            FLOAT,
             BIGINT,
             INTEGER,
             BOOLEAN,
             NOTYPE,
             ARRAY,
-            ObjectType,
+            FloatVector,
+            ObjectTypeImpl,
         ]
 
         for sql_type in precedence_order:
             for obj in sql_type_array:
-                # FIXME: Workaround. Currently, ObjectType can not be resolved back to a type?
-                #        TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union
-                if isinstance(sql_type, ObjectTypeImpl):
-                    return ObjectType
                 if isinstance(obj, sql_type):
                     return obj
         return TEXT()
@@ -187,6 +234,8 @@ class CrateDBConnector(PostgresConnector):
             _len = int(getattr(sql_type, "length", 0) or 0)
 
             if isinstance(sql_type, _ObjectArray):
+                return 0, _len
+            if isinstance(sql_type, FloatVector):
                 return 0, _len
             if isinstance(sql_type, NOTYPE):
                 return 0, _len
@@ -245,3 +294,18 @@ class CrateDBConnector(PostgresConnector):
         Don't emit `CREATE SCHEMA` statements to CrateDB.
         """
         pass
+
+
+def resolve_array_inner_type(jsonschema_type: dict) -> t.Union[sa.types.TypeEngine, None]:
+    if "items" in jsonschema_type:
+        if is_boolean_type(jsonschema_type["items"]):
+            return BOOLEAN()
+        if is_number_type(jsonschema_type["items"]):
+            return FLOAT()
+        if is_integer_type(jsonschema_type["items"]):
+            return BIGINT()
+        if is_object_type(jsonschema_type["items"]):
+            return ObjectType()
+        if is_array_type(jsonschema_type["items"]):
+            return resolve_array_inner_type(jsonschema_type["items"]["type"])
+    return None
