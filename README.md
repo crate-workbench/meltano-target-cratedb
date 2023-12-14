@@ -1,4 +1,4 @@
-# Meltano/Singer Target for CrateDB
+# Singer target / Meltano loader for CrateDB
 
 [![Tests](https://github.com/crate-workbench/meltano-target-cratedb/actions/workflows/main.yml/badge.svg)](https://github.com/crate-workbench/meltano-target-cratedb/actions/workflows/main.yml)
 [![Test coverage](https://img.shields.io/codecov/c/gh/crate-workbench/meltano-target-cratedb.svg)](https://codecov.io/gh/crate-workbench/meltano-target-cratedb/)
@@ -13,73 +13,19 @@
 ## About
 
 A [Singer] target for [CrateDB], built with the [Meltano SDK] for custom extractors
-and loaders, and based on the [Meltano PostgreSQL target]. It connects a library of
-[600+ connectors] with CrateDB, and vice versa.
+and loaders, and based on the [Meltano PostgreSQL target].
 
-In Singer ELT jargon, a "target" conceptually wraps a data sink, where you
-"load" data into.
-
-Singer, Meltano, and PipelineWise provide foundational components and
-an integration engine for composable Open Source ETL with [600+ connectors].
-On the database integration side, they are heavily based on [SQLAlchemy].
-
-
-### CrateDB
-
-[CrateDB] is a distributed and scalable SQL database for storing and analyzing
-massive amounts of data in near real-time, even with complex queries. It is
-PostgreSQL-compatible, and based on [Apache Lucene].
-
-CrateDB offers a Python SQLAlchemy dialect, in order to plug into the
-comprehensive Python data-science and -wrangling ecosystems.
-
-### Singer
-
-_The open-source standard for writing scripts that move data._
-
-[Singer] is an open source specification and software framework for [ETL]/[ELT]
-data exchange between a range of different systems. For talking to SQL databases,
-it employs a metadata subsystem based on SQLAlchemy.
-
-Singer reads and writes Singer-formatted messages, following the [Singer Spec].
-Effectively, those are JSONL files.
-
-### Meltano
-
-_Unlock all the data that powers your data platform._
-
-_Say goodbye to writing, maintaining, and scaling your own API integrations
-with Meltano's declarative code-first data integration engine, bringing
-600+ APIs and DBs to the table._
-
-[Meltano] builds upon Singer technologies, uses configuration files in YAML
-syntax instead of JSON, adds an improved SDK and other components, and runs
-the central addon registry, [meltano | Hub].
-
-### PipelineWise
-
-[PipelineWise] is another Data Pipeline Framework using the Singer.io
-specification to ingest and replicate data from various sources to
-various destinations. The list of [PipelineWise Taps] include another
-20+ high-quality data-source and -sink components.
-
-### SQLAlchemy
-
-[SQLAlchemy] is the leading Python SQL toolkit and Object Relational Mapper
-that gives application developers the full power and flexibility of SQL.
-
-It provides a full suite of well known enterprise-level persistence patterns,
-designed for efficient and high-performing database access, adapted into a
-simple and Pythonic domain language.
+In order to learn more about Singer, Meltano, and friends, navigate to the
+[Singer Intro](./docs/singer-intro.md).
 
 
 ## Install
 
-Usually, you will not install this package directly, but on behalf
-of a Meltano definition instead, for example. A corresponding snippet
-is outlined in the next section. After adding it to your `meltano.yml`
-configuration file, you can install all defined components and their
-dependencies.
+Usually, you will not install this package directly, but rather on behalf
+of a Meltano project. A corresponding snippet is outlined in the next section.
+
+After adding it to your `meltano.yml` project definition file, you can install
+all defined components and their dependencies with a single command.
 ```
 meltano install
 ```
@@ -197,8 +143,8 @@ pip_url: --editable=/path/to/sources/meltano-target-cratedb
 ```
 
 
-[600+ connectors]: https://hub.meltano.com/
 [Apache Lucene]: https://lucene.apache.org/
+[connectors]: https://hub.meltano.com/
 [CrateDB]: https://cratedb.com/product
 [CrateDB Cloud]: https://console.cratedb.cloud/
 [ELT]: https://en.wikipedia.org/wiki/Extract,_load,_transform
