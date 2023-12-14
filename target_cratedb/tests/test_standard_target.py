@@ -102,6 +102,7 @@ def initialize_database(cratedb_config):
         "melty.array_number",
         "melty.array_string",
         "melty.array_timestamp",
+        "melty.commits",
         "melty.foo",
         "melty.object_mixed",
         "melty.test_new_array_column",
@@ -258,10 +259,11 @@ def test_special_chars_in_attributes(cratedb_target):
     singer_file_to_target(file_name, cratedb_target)
 
 
-# TODO test that data is correctly set
-def test_optional_attributes(cratedb_target):
+def test_optional_attributes(cratedb_target, helper):
     file_name = "optional_attributes.singer"
     singer_file_to_target(file_name, cratedb_target)
+    row = {"id": 1, "optional": "This is optional"}
+    helper.verify_data("test_optional_attributes", 4, "id", row)
 
 
 def test_schema_no_properties(cratedb_target):
@@ -270,106 +272,114 @@ def test_schema_no_properties(cratedb_target):
     singer_file_to_target(file_name, cratedb_target)
 
 
-# TODO test that data is correct
-# @pytest.mark.skip("ADD COLUMN a5 ARRAY(OBJECT) is made, but ARRAY(STRING) would be needed")
-def test_schema_updates(cratedb_target):
+def test_schema_updates(cratedb_target, helper):
     file_name = "schema_updates.singer"
     singer_file_to_target(file_name, cratedb_target)
+    row = {
+        "id": 1,
+        "a1": 101,  # Decimal("101"),
+        "a2": "string1",
+        "a3": None,
+        "a4": None,
+        "a5": None,
+        "a6": None,
+    }
+    helper.verify_data("test_schema_updates", 6, "id", row)
+
+
+def test_multiple_state_messages(cratedb_target, helper):
+    file_name = "multiple_state_messages.singer"
+    singer_file_to_target(file_name, cratedb_target)
+    row = {"id": 1, "metric": 100}
+    helper.verify_data("test_multiple_state_messages_a", 6, "id", row)
+    row = {"id": 1, "metric": 110}
+    helper.verify_data("test_multiple_state_messages_b", 6, "id", row)
 
 
 # TODO test that data is correct
-def test_multiple_state_messages(cratedb_target):
-    file_name = "multiple_state_messages.singer"
+def test_multiple_schema_messages(cratedb_target, caplog):
+    """Test multiple identical schema messages.
+
+    Multiple schema messages with the same schema should not cause 'schema has changed'
+    logging statements. See: https://github.com/MeltanoLabs/target-postgres/issues/124
+
+    Caplog docs: https://docs.pytest.org/en/latest/how-to/logging.html#caplog-fixture
+    """
+    file_name = "multiple_schema_messages.singer"
     singer_file_to_target(file_name, cratedb_target)
+    assert "Schema has changed for stream" not in caplog.text
 
 
 @pytest.mark.skip("Upserts do not work yet")
 def test_relational_data(cratedb_target, helper):
-    engine = create_engine(cratedb_target)
     file_name = "user_location_data.singer"
     singer_file_to_target(file_name, cratedb_target)
 
     file_name = "user_location_upsert_data.singer"
     singer_file_to_target(file_name, cratedb_target)
 
-    schema_name = cratedb_target.config["default_target_schema"]
+    users = [
+        {"id": 1, "name": "Johny"},
+        {"id": 2, "name": "George"},
+        {"id": 3, "name": "Jacob"},
+        {"id": 4, "name": "Josh"},
+        {"id": 5, "name": "Jim"},
+        {"id": 8, "name": "Thomas"},
+        {"id": 12, "name": "Paul"},
+        {"id": 13, "name": "Mary"},
+    ]
+    locations = [
+        {"id": 1, "name": "Philly"},
+        {"id": 2, "name": "NY"},
+        {"id": 3, "name": "San Francisco"},
+        {"id": 6, "name": "Colorado"},
+        {"id": 8, "name": "Boston"},
+    ]
+    user_in_location = [
+        {
+            "id": 1,
+            "user_id": 1,
+            "location_id": 4,
+            "info": {"weather": "rainy", "mood": "sad"},
+        },
+        {
+            "id": 2,
+            "user_id": 2,
+            "location_id": 3,
+            "info": {"weather": "sunny", "mood": "satisfied"},
+        },
+        {
+            "id": 3,
+            "user_id": 1,
+            "location_id": 3,
+            "info": {"weather": "sunny", "mood": "happy"},
+        },
+        {
+            "id": 6,
+            "user_id": 3,
+            "location_id": 2,
+            "info": {"weather": "sunny", "mood": "happy"},
+        },
+        {
+            "id": 14,
+            "user_id": 4,
+            "location_id": 1,
+            "info": {"weather": "cloudy", "mood": "ok"},
+        },
+    ]
 
-    with engine.connect() as connection:
-        expected_test_users = [
-            {"id": 1, "name": "Johny"},
-            {"id": 2, "name": "George"},
-            {"id": 3, "name": "Jacob"},
-            {"id": 4, "name": "Josh"},
-            {"id": 5, "name": "Jim"},
-            {"id": 8, "name": "Thomas"},
-            {"id": 12, "name": "Paul"},
-            {"id": 13, "name": "Mary"},
-        ]
-
-        full_table_name = f"{schema_name}.test_users"
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name} ORDER BY id"))
-        result_dict = [helper.remove_metadata_columns(row._asdict()) for row in result.all()]
-        assert result_dict == expected_test_users
-
-        expected_test_locations = [
-            {"id": 1, "name": "Philly"},
-            {"id": 2, "name": "NY"},
-            {"id": 3, "name": "San Francisco"},
-            {"id": 6, "name": "Colorado"},
-            {"id": 8, "name": "Boston"},
-        ]
-
-        full_table_name = f"{schema_name}.test_locations"
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name} ORDER BY id"))
-        result_dict = [helper.remove_metadata_columns(row._asdict()) for row in result.all()]
-        assert result_dict == expected_test_locations
-
-        expected_test_user_in_location = [
-            {
-                "id": 1,
-                "user_id": 1,
-                "location_id": 4,
-                "info": {"weather": "rainy", "mood": "sad"},
-            },
-            {
-                "id": 2,
-                "user_id": 2,
-                "location_id": 3,
-                "info": {"weather": "sunny", "mood": "satisfied"},
-            },
-            {
-                "id": 3,
-                "user_id": 1,
-                "location_id": 3,
-                "info": {"weather": "sunny", "mood": "happy"},
-            },
-            {
-                "id": 6,
-                "user_id": 3,
-                "location_id": 2,
-                "info": {"weather": "sunny", "mood": "happy"},
-            },
-            {
-                "id": 14,
-                "user_id": 4,
-                "location_id": 1,
-                "info": {"weather": "cloudy", "mood": "ok"},
-            },
-        ]
-
-        full_table_name = f"{schema_name}.test_user_in_location"
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name} ORDER BY id"))
-        result_dict = [helper.remove_metadata_columns(row._asdict()) for row in result.all()]
-        assert result_dict == expected_test_user_in_location
+    helper.verify_data("test_users", 8, "id", users)
+    helper.verify_data("test_locations", 5, "id", locations)
+    helper.verify_data("test_user_in_location", 5, "id", user_in_location)
 
 
-def test_no_primary_keys(cratedb_target):
+def test_no_primary_keys(cratedb_target, helper):
     """We run both of these tests twice just to ensure that no records are removed and append only works properly"""
     engine = create_engine(cratedb_target)
     table_name = "test_no_pk"
     full_table_name = cratedb_target.config["default_target_schema"] + "." + table_name
     with engine.connect() as connection, connection.begin():
-        result = connection.execute(sqlalchemy.text(f"DROP TABLE IF EXISTS {full_table_name}"))
+        connection.execute(sqlalchemy.text(f"DROP TABLE IF EXISTS {full_table_name}"))
     file_name = f"{table_name}.singer"
     singer_file_to_target(file_name, cratedb_target)
 
@@ -382,10 +392,8 @@ def test_no_primary_keys(cratedb_target):
     file_name = f"{table_name}_append.singer"
     singer_file_to_target(file_name, cratedb_target)
 
-    # Will populate us with 22 records, we run this twice
-    with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
-        assert result.rowcount == 16
+    # Will populate 22 records, we run this twice.
+    helper.verify_data(table_name, 16)
 
 
 def test_no_type(cratedb_target):
@@ -393,17 +401,11 @@ def test_no_type(cratedb_target):
     singer_file_to_target(file_name, cratedb_target)
 
 
-# TODO test that data is correct
-def test_duplicate_records(cratedb_target):
+def test_duplicate_records(cratedb_target, helper):
     file_name = "duplicate_records.singer"
     singer_file_to_target(file_name, cratedb_target)
-
-
-# TODO test that data is correct
-@pytest.mark.skip('Renders as `"fruits" ARRAY(OBJECT(DYNAMIC))`, but needs to be `ARRAY(STRING)`')
-def test_array_data(cratedb_target):
-    file_name = "array_data.singer"
-    singer_file_to_target(file_name, cratedb_target)
+    row = {"id": 1, "metric": 100}
+    helper.verify_data("test_duplicate_records", 2, "id", row)
 
 
 def test_array_boolean(cratedb_target, helper):
@@ -506,8 +508,7 @@ def test_object_mixed(cratedb_target, helper):
     )
 
 
-# TODO test that data is correct
-def test_encoded_string_data(cratedb_target):
+def test_encoded_string_data(cratedb_target, helper):
     """
     We removed NUL characters from the original encoded_strings.singer as postgres doesn't allow them.
     https://www.postgresql.org/docs/current/functions-string.html#:~:text=chr(0)%20is%20disallowed%20because%20text%20data%20types%20cannot%20store%20that%20character.
@@ -521,6 +522,12 @@ def test_encoded_string_data(cratedb_target):
 
     file_name = "encoded_strings.singer"
     singer_file_to_target(file_name, cratedb_target)
+    row = {"id": 1, "info": "simple string 2837"}
+    helper.verify_data("test_strings", 11, "id", row)
+    row = {"id": 1, "info": {"name": "simple", "value": "simple string 2837"}}
+    helper.verify_data("test_strings_in_objects", 11, "id", row)
+    row = {"id": 1, "strings": ["simple string", "απλή συμβολοσειρά", "简单的字串"]}
+    helper.verify_data("test_strings_in_arrays", 6, "id", row)
 
 
 @pytest.mark.skip("Fails with: SQLParseException[Limit of total fields [1000] in index [melty.aapl] has been exceeded]")
