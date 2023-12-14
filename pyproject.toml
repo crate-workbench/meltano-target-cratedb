@@ -11,22 +11,29 @@ default-tag = "0.0.0"
 
 [project]
 name = "meltano-target-cratedb"
-description = "A Singer target for CrateDB, built with the Meltano SDK, and based on the Meltano PostgreSQL target."
+description = "A Singer target / Meltano loader for CrateDB, built with the Meltano SDK, and based on the Meltano PostgreSQL target."
 readme = "README.md"
 keywords = [
-  "cratedb",
-  "data-loading",
-  "data-processing",
+  "CrateDB",
+  "data",
   "data-toolkit",
-  "data-transfer",
-  "data-transformation",
   "ELT",
   "ETL",
+  "extract",
+  "ingest",
   "io",
+  "load",
   "Meltano",
   "Meltano SDK",
+  "pipeline",
+  "Postgres",
   "PostgreSQL",
+  "process",
   "Singer",
+  "SQL",
+  "SQLAlchemy",
+  "transfer",
+  "transformation",
 ]
 license = { text = "MIT" }
 authors = [
@@ -56,6 +63,7 @@ classifiers = [
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
+  "Programming Language :: SQL",
   "Topic :: Adaptive Technologies",
   "Topic :: Communications",
   "Topic :: Database",
@@ -103,7 +111,6 @@ release = [
   "twine<5",
 ]
 test = [
-  "meltano-target-cratedb[testing]",
   "pytest<8",
   "pytest-cov<5",
   "pytest-mock<4",
@@ -156,10 +163,6 @@ testpaths = [
 ]
 xfail_strict = true
 markers = [
-  "examples",
-  "influxdb",
-  "mongodb",
-  "slow",
 ]
 
 [tool.ruff]
@@ -207,8 +210,6 @@ extend-ignore = [
 ]
 
 extend-exclude = [
-  "amqp-to-mqtt.py",
-  "workbench.py",
 ]
 
 [tool.ruff.per-file-ignores]
