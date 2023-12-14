@@ -20,6 +20,7 @@ from target_postgres.tests.test_target_postgres import AssertionHelper
 
 from target_cratedb.connector import CrateDBConnector
 from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
+from target_cratedb.sqlalchemy.vector import FloatVector
 from target_cratedb.target import TargetCrateDB
 
 try:
@@ -427,9 +428,6 @@ def test_array_float_vector(cratedb_target, helper):
         "value": [1.1, 2.1, 1.1, 1.3],
     }
     helper.verify_data("array_float_vector", 3, "id", row)
-
-    from target_cratedb.sqlalchemy.vector import FloatVector
-
     helper.verify_schema(
         "array_float_vector",
         check_columns={
