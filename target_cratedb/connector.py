@@ -167,6 +167,9 @@ class CrateDBConnector(PostgresConnector):
             An instance of the best SQL type class based on defined precedence order.
         """
         precedence_order = [
+            sa.ARRAY,
+            FloatVector,
+            ObjectTypeImpl,
             sa.TEXT,
             sa.TIMESTAMP,
             sa.DATETIME,
@@ -178,9 +181,6 @@ class CrateDBConnector(PostgresConnector):
             sa.INTEGER,
             sa.BOOLEAN,
             NOTYPE,
-            sa.ARRAY,
-            FloatVector,
-            ObjectTypeImpl,
         ]
 
         for sql_type in precedence_order:

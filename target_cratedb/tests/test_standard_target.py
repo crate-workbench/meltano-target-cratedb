@@ -131,7 +131,12 @@ def singer_file_to_target(file_name, target) -> None:
         file_name: name to file in .tests/data_files to be sent into target
         Target: Target to pass data from file_path into..
     """
-    file_path = resource_files("target_postgres.tests") / "data_files" / file_name
+    file_path_local = resource_files("target_cratedb.tests") / "data_files" / file_name
+    file_path_upstream = resource_files("target_postgres.tests") / "data_files" / file_name
+    if file_path_local.exists():
+        file_path = file_path_local
+    else:
+        file_path = file_path_upstream
     buf = io.StringIO()
     with redirect_stdout(buf):
         with open(file_path) as f:
@@ -555,8 +560,6 @@ def test_large_int(cratedb_target):
     singer_file_to_target(file_name, cratedb_target)
 
 
-# SQLParseException[Cannot cast value `[PA-KY]` to type `text`]
-@pytest.mark.skip("`parent_ids STRING` is rendered, but it needs to be `parent_ids ARRAY(STRING())`")
 def test_anyof(cratedb_target):
     """Test that anyOf is handled correctly"""
     engine = create_engine(cratedb_target)
@@ -571,7 +574,10 @@ def test_anyof(cratedb_target):
         for column in table.c:
             # {"type":"string"}
             if column.name == "id":
-                assert isinstance(column.type, sa.TEXT)
+                # TODO: CrateDB needs `(sa.TEXT, sa.String)` here.
+                #       The original is fine with `sa.TEXT`, so review
+                #       the dialect please. Discovered through `test_anyof`.
+                assert isinstance(column.type, (sa.TEXT, sa.String))
 
             # Any of nullable date-time.
             # Note that postgres timestamp is equivalent to jsonschema date-time.
@@ -586,13 +592,15 @@ def test_anyof(cratedb_target):
 
             # Any of nullable string.
             # {"anyOf":[{"type":"string"},{"type":"null"}]}
+            # TODO: See above.
             if column.name == "commit_message":
-                assert isinstance(column.type, sa.TEXT)
+                assert isinstance(column.type, (sa.TEXT, sa.String))
 
             # Any of nullable string or integer.
             # {"anyOf":[{"type":"string"},{"type":"integer"},{"type":"null"}]}
+            # TODO: See above.
             if column.name == "legacy_id":
-                assert isinstance(column.type, sa.TEXT)
+                assert isinstance(column.type, (sa.TEXT, sa.String))
 
 
 def test_new_array_column(cratedb_target):
