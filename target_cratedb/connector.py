@@ -5,25 +5,10 @@ import typing as t
 from builtins import issubclass
 from datetime import datetime
 
-import sqlalchemy
 import sqlalchemy as sa
 from crate.client.sqlalchemy.types import ObjectType, ObjectTypeImpl, _ObjectArray
 from singer_sdk import typing as th
 from singer_sdk.helpers._typing import is_array_type, is_boolean_type, is_integer_type, is_number_type, is_object_type
-from sqlalchemy.types import (
-    ARRAY,
-    BIGINT,
-    BOOLEAN,
-    DATE,
-    DATETIME,
-    DECIMAL,
-    FLOAT,
-    INTEGER,
-    TEXT,
-    TIME,
-    TIMESTAMP,
-    VARCHAR,
-)
 from target_postgres.connector import NOTYPE, PostgresConnector
 
 from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
@@ -39,7 +24,7 @@ class CrateDBConnector(PostgresConnector):
     allow_merge_upsert: bool = False  # Whether MERGE UPSERT is supported.
     allow_temp_tables: bool = False  # Whether temp tables are supported.
 
-    def create_engine(self) -> sqlalchemy.Engine:
+    def create_engine(self) -> sa.Engine:
         """
         Create an SQLAlchemy engine object.
 
@@ -50,7 +35,7 @@ class CrateDBConnector(PostgresConnector):
         return engine
 
     @staticmethod
-    def to_sql_type(jsonschema_type: dict) -> sqlalchemy.types.TypeEngine:
+    def to_sql_type(jsonschema_type: dict) -> sa.types.TypeEngine:
         """Return a JSON Schema representation of the provided type.
 
         Note: Needs to be patched to invoke other static methods on `CrateDBConnector`.
@@ -112,7 +97,7 @@ class CrateDBConnector(PostgresConnector):
         if "null" in jsonschema_type["type"]:
             return None
         if "integer" in jsonschema_type["type"]:
-            return BIGINT()
+            return sa.BIGINT()
         if "object" in jsonschema_type["type"]:
             return ObjectType
         if "array" in jsonschema_type["type"]:
@@ -157,16 +142,16 @@ class CrateDBConnector(PostgresConnector):
             # Discover/translate inner types.
             inner_type = resolve_array_inner_type(jsonschema_type)
             if inner_type is not None:
-                return ARRAY(inner_type)
+                return sa.ARRAY(inner_type)
 
             # When type discovery fails, assume `TEXT`.
-            return ARRAY(TEXT())
+            return sa.ARRAY(sa.TEXT())
 
         if jsonschema_type.get("format") == "date-time":
-            return TIMESTAMP()
+            return sa.TIMESTAMP()
         individual_type = th.to_sql_type(jsonschema_type)
-        if isinstance(individual_type, VARCHAR):
-            return TEXT()
+        if isinstance(individual_type, sa.VARCHAR):
+            return sa.TEXT()
         return individual_type
 
     @staticmethod
@@ -182,18 +167,18 @@ class CrateDBConnector(PostgresConnector):
             An instance of the best SQL type class based on defined precedence order.
         """
         precedence_order = [
-            TEXT,
-            TIMESTAMP,
-            DATETIME,
-            DATE,
-            TIME,
-            DECIMAL,
-            FLOAT,
-            BIGINT,
-            INTEGER,
-            BOOLEAN,
+            sa.TEXT,
+            sa.TIMESTAMP,
+            sa.DATETIME,
+            sa.DATE,
+            sa.TIME,
+            sa.DECIMAL,
+            sa.FLOAT,
+            sa.BIGINT,
+            sa.INTEGER,
+            sa.BOOLEAN,
             NOTYPE,
-            ARRAY,
+            sa.ARRAY,
             FloatVector,
             ObjectTypeImpl,
         ]
@@ -202,12 +187,12 @@ class CrateDBConnector(PostgresConnector):
             for obj in sql_type_array:
                 if isinstance(obj, sql_type):
                     return obj
-        return TEXT()
+        return sa.TEXT()
 
     def _sort_types(
         self,
-        sql_types: t.Iterable[sqlalchemy.types.TypeEngine],
-    ) -> list[sqlalchemy.types.TypeEngine]:
+        sql_types: t.Iterable[sa.types.TypeEngine],
+    ) -> list[sa.types.TypeEngine]:
         """Return the input types sorted from most to least compatible.
 
         Note: Needs to be patched to supply handlers for `_ObjectArray` and `NOTYPE`.
@@ -227,7 +212,7 @@ class CrateDBConnector(PostgresConnector):
         """
 
         def _get_type_sort_key(
-            sql_type: sqlalchemy.types.TypeEngine,
+            sql_type: sa.types.TypeEngine,
         ) -> tuple[int, int]:
             # return rank, with higher numbers ranking first
 
@@ -257,10 +242,10 @@ class CrateDBConnector(PostgresConnector):
     def copy_table_structure(
         self,
         full_table_name: str,
-        from_table: sqlalchemy.Table,
-        connection: sqlalchemy.engine.Connection,
+        from_table: sa.Table,
+        connection: sa.engine.Connection,
         as_temp_table: bool = False,
-    ) -> sqlalchemy.Table:
+    ) -> sa.Table:
         """Copy table structure.
 
         Note: Needs to be patched to prevent `Primary key columns cannot be nullable` errors.
@@ -275,17 +260,17 @@ class CrateDBConnector(PostgresConnector):
             The new table object.
         """
         _, schema_name, table_name = self.parse_full_table_name(full_table_name)
-        meta = sqlalchemy.MetaData(schema=schema_name)
+        meta = sa.MetaData(schema=schema_name)
         columns = []
         if self.table_exists(full_table_name=full_table_name):
             raise RuntimeError("Table already exists")
-        column: sqlalchemy.Column
+        column: sa.Column
         for column in from_table.columns:
             # CrateDB: Prevent `Primary key columns cannot be nullable` errors.
             if column.primary_key and column.nullable:
                 column.nullable = False
             columns.append(column._copy())
-        new_table = sqlalchemy.Table(table_name, meta, *columns)
+        new_table = sa.Table(table_name, meta, *columns)
         new_table.create(bind=connection)
         return new_table
 
@@ -299,11 +284,11 @@ class CrateDBConnector(PostgresConnector):
 def resolve_array_inner_type(jsonschema_type: dict) -> t.Union[sa.types.TypeEngine, None]:
     if "items" in jsonschema_type:
         if is_boolean_type(jsonschema_type["items"]):
-            return BOOLEAN()
+            return sa.BOOLEAN()
         if is_number_type(jsonschema_type["items"]):
-            return FLOAT()
+            return sa.FLOAT()
         if is_integer_type(jsonschema_type["items"]):
-            return BIGINT()
+            return sa.BIGINT()
         if is_object_type(jsonschema_type["items"]):
             return ObjectType()
         if is_array_type(jsonschema_type["items"]):

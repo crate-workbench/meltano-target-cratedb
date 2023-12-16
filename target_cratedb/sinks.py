@@ -3,9 +3,8 @@ import datetime
 import time
 from typing import List, Optional, Union
 
-import sqlalchemy
+import sqlalchemy as sa
 from pendulum import now
-from sqlalchemy import Column, Executable, MetaData, Table, bindparam, insert, select, update
 from target_postgres.sinks import PostgresSink
 
 from target_cratedb.connector import CrateDBConnector
@@ -116,7 +115,7 @@ class CrateDBSink(PostgresSink):
         # Use one connection so we do this all in a single transaction
         with self.connector._connect() as connection, connection.begin():
             # Check structure of table
-            table: sqlalchemy.Table = self.connector.prepare_table(
+            table: sa.Table = self.connector.prepare_table(
                 full_table_name=self.full_table_name,
                 schema=self.schema,
                 primary_keys=self.key_properties,
@@ -134,7 +133,7 @@ class CrateDBSink(PostgresSink):
             # FIXME: Upserts do not work yet.
             """
             # Create a temp table (Creates from the table above)
-            temp_table: sqlalchemy.Table = self.connector.copy_table_structure(
+            temp_table: sa.Table = self.connector.copy_table_structure(
                 full_table_name=self.temp_table_name,
                 from_table=table,
                 as_temp_table=True,
@@ -162,11 +161,11 @@ class CrateDBSink(PostgresSink):
 
     def upsertX(
         self,
-        from_table: sqlalchemy.Table,
-        to_table: sqlalchemy.Table,
+        from_table: sa.Table,
+        to_table: sa.Table,
         schema: dict,
-        join_keys: List[Column],
-        connection: sqlalchemy.engine.Connection,
+        join_keys: List[sa.Column],
+        connection: sa.engine.Connection,
     ) -> Optional[int]:
         """Merge upsert data from one table to another.
 
@@ -185,30 +184,30 @@ class CrateDBSink(PostgresSink):
 
         if self.append_only is True:
             # Insert
-            select_stmt = select(from_table.columns).select_from(from_table)
+            select_stmt = sa.select(from_table.columns).select_from(from_table)
             insert_stmt = to_table.insert().from_select(names=list(from_table.columns), select=select_stmt)
             connection.execute(insert_stmt)
         else:
             join_predicates = []
             for key in join_keys:
-                from_table_key: sqlalchemy.Column = from_table.columns[key]  # type: ignore[call-overload]
-                to_table_key: sqlalchemy.Column = to_table.columns[key]  # type: ignore[call-overload]
+                from_table_key: sa.Column = from_table.columns[key]  # type: ignore[call-overload]
+                to_table_key: sa.Column = to_table.columns[key]  # type: ignore[call-overload]
                 join_predicates.append(from_table_key == to_table_key)  # type: ignore[call-overload]
 
-            join_condition = sqlalchemy.and_(*join_predicates)
+            join_condition = sa.and_(*join_predicates)
 
             where_predicates = []
             for key in join_keys:
-                to_table_key: sqlalchemy.Column = to_table.columns[key]  # type: ignore[call-overload,no-redef]
+                to_table_key: sa.Column = to_table.columns[key]  # type: ignore[call-overload,no-redef]
                 where_predicates.append(to_table_key.is_(None))
-            where_condition = sqlalchemy.and_(*where_predicates)
+            where_condition = sa.and_(*where_predicates)
 
             select_stmt = (
-                select(from_table.columns)
+                sa.select(from_table.columns)
                 .select_from(from_table.outerjoin(to_table, join_condition))
                 .where(where_condition)
             )
-            insert_stmt = insert(to_table).from_select(names=list(from_table.columns), select=select_stmt)
+            insert_stmt = sa.insert(to_table).from_select(names=list(from_table.columns), select=select_stmt)
 
             connection.execute(insert_stmt)
 
@@ -216,14 +215,14 @@ class CrateDBSink(PostgresSink):
             where_condition = join_condition
             update_columns = {}
             for column_name in self.schema["properties"].keys():
-                from_table_column: sqlalchemy.Column = from_table.columns[column_name]
-                to_table_column: sqlalchemy.Column = to_table.columns[column_name]
+                from_table_column: sa.Column = from_table.columns[column_name]
+                to_table_column: sa.Column = to_table.columns[column_name]
                 # Prevent: `Updating a primary key is not supported`
                 if to_table_column.primary_key:
                     continue
                 update_columns[to_table_column] = from_table_column
 
-            update_stmt = update(to_table).where(where_condition).values(update_columns)
+            update_stmt = sa.update(to_table).where(where_condition).values(update_columns)
             connection.execute(update_stmt)
 
         return None
@@ -264,7 +263,7 @@ class CrateDBSink(PostgresSink):
             self.logger.info("Hard delete: %s", self.config.get("hard_delete"))
             if self.config["hard_delete"] is True:
                 connection.execute(
-                    sqlalchemy.text(
+                    sa.text(
                         f'DELETE FROM "{self.schema_name}"."{self.table_name}" '  # noqa: S608
                         f'WHERE "{self.version_column_name}" <= {new_version} '
                         f'OR "{self.version_column_name}" IS NULL'
@@ -284,7 +283,7 @@ class CrateDBSink(PostgresSink):
                     connection=connection,
                 )
             # Need to deal with the case where data doesn't exist for the version column
-            query = sqlalchemy.text(
+            query = sa.text(
                 f'UPDATE "{self.schema_name}"."{self.table_name}"\n'
                 f'SET "{self.soft_delete_column_name}" = :deletedate \n'
                 f'WHERE "{self.version_column_name}" < :version '
@@ -292,16 +291,16 @@ class CrateDBSink(PostgresSink):
                 f'  AND "{self.soft_delete_column_name}" IS NULL\n'
             )
             query = query.bindparams(
-                bindparam("deletedate", value=deleted_at, type_=datetime_type),
-                bindparam("version", value=new_version, type_=integer_type),
+                sa.bindparam("deletedate", value=deleted_at, type_=datetime_type),
+                sa.bindparam("version", value=new_version, type_=integer_type),
             )
             connection.execute(query)
 
     def generate_insert_statement(
         self,
         full_table_name: str,
-        columns: List[Column],
-    ) -> Union[str, Executable]:
+        columns: List[sa.Column],
+    ) -> Union[str, sa.sql.Executable]:
         """Generate an insert statement for the given records.
 
         Args:
@@ -312,6 +311,6 @@ class CrateDBSink(PostgresSink):
             An insert statement.
         """
         # FIXME:
-        metadata = MetaData(schema=self.schema_name)
-        table = Table(full_table_name, metadata, *columns)
-        return insert(table)
+        metadata = sa.MetaData(schema=self.schema_name)
+        table = sa.Table(full_table_name, metadata, *columns)
+        return sa.insert(table)
