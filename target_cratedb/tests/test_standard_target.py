@@ -7,7 +7,6 @@ from contextlib import redirect_stdout
 
 import jsonschema
 import pytest
-import sqlalchemy
 import sqlalchemy as sa
 from crate.client.sqlalchemy.types import ObjectTypeImpl
 from singer_sdk.exceptions import MissingKeyPropertiesError
@@ -87,7 +86,7 @@ def cratedb_target(cratedb_config) -> TargetCrateDB:
     return TargetCrateDB(config=cratedb_config)
 
 
-def create_engine(target_cratedb: TargetCrateDB) -> sqlalchemy.engine.Engine:
+def create_engine(target_cratedb: TargetCrateDB) -> sa.engine.Engine:
     engine = TargetCrateDB.default_sink_class.connector_class(config=target_cratedb.config)._engine
     polyfill_refresh_after_dml_engine(engine)
     return engine
@@ -182,7 +181,7 @@ def test_port_default_config():
     target_config = TargetCrateDB(config=config).config
     connector = CrateDBConnector(target_config)
 
-    engine: sqlalchemy.engine.Engine = connector._engine
+    engine: sa.engine.Engine = connector._engine
     assert (
         engine.url.render_as_string(hide_password=False)
         == f"{dialect_driver}://{user}:{password}@{host}:5432/{database}"
@@ -207,7 +206,7 @@ def test_port_config():
     target_config = TargetCrateDB(config=config).config
     connector = CrateDBConnector(target_config)
 
-    engine: sqlalchemy.engine.Engine = connector._engine
+    engine: sa.engine.Engine = connector._engine
     assert (
         engine.url.render_as_string(hide_password=False)
         == f"{dialect_driver}://{user}:{password}@{host}:4200/{database}"
@@ -379,7 +378,7 @@ def test_no_primary_keys(cratedb_target, helper):
     table_name = "test_no_pk"
     full_table_name = cratedb_target.config["default_target_schema"] + "." + table_name
     with engine.connect() as connection, connection.begin():
-        connection.execute(sqlalchemy.text(f"DROP TABLE IF EXISTS {full_table_name}"))
+        connection.execute(sa.text(f"DROP TABLE IF EXISTS {full_table_name}"))
     file_name = f"{table_name}.singer"
     singer_file_to_target(file_name, cratedb_target)
 
@@ -417,7 +416,7 @@ def test_array_boolean(cratedb_target, helper):
         "array_boolean",
         check_columns={
             "id": {"type": sa.BIGINT},
-            "value": {"type": sqlalchemy.types.ARRAY},
+            "value": {"type": sa.ARRAY},
         },
     )
 
@@ -448,7 +447,7 @@ def test_array_number(cratedb_target, helper):
         "array_number",
         check_columns={
             "id": {"type": sa.BIGINT},
-            "value": {"type": sqlalchemy.types.ARRAY},
+            "value": {"type": sa.ARRAY},
         },
     )
 
@@ -462,7 +461,7 @@ def test_array_string(cratedb_target, helper):
         "array_string",
         check_columns={
             "id": {"type": sa.BIGINT},
-            "value": {"type": sqlalchemy.types.ARRAY},
+            "value": {"type": sa.ARRAY},
         },
     )
 
@@ -476,7 +475,7 @@ def test_array_timestamp(cratedb_target, helper):
         "array_timestamp",
         check_columns={
             "id": {"type": sa.BIGINT},
-            "value": {"type": sqlalchemy.types.ARRAY},
+            "value": {"type": sa.ARRAY},
         },
     )
 
@@ -566,8 +565,8 @@ def test_anyof(cratedb_target):
     schema = cratedb_target.config["default_target_schema"]
     singer_file_to_target(file_name, cratedb_target)
     with engine.connect() as connection:
-        meta = sqlalchemy.MetaData()
-        table = sqlalchemy.Table("commits", meta, schema=schema, autoload_with=connection)
+        meta = sa.MetaData()
+        table = sa.Table("commits", meta, schema=schema, autoload_with=connection)
         # ruff: noqa: ERA001
         for column in table.c:
             # {"type":"string"}
@@ -613,27 +612,27 @@ def test_activate_version_hard_delete(cratedb_config):
     engine = create_engine(pg_hard_delete_true)
     singer_file_to_target(file_name, pg_hard_delete_true)
     with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 7
     with engine.connect() as connection, connection.begin():
         # Add a record like someone would if they weren't using the tap target combo
         result = connection.execute(
-            sqlalchemy.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual1', 'Meltano')")
+            sa.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual1', 'Meltano')")
         )
         result = connection.execute(
-            sqlalchemy.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual2', 'Meltano')")
+            sa.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual2', 'Meltano')")
         )
         # CrateDB-specific
-        connection.execute(sqlalchemy.text(f"REFRESH TABLE {full_table_name}"))
+        connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
     with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 9
 
     singer_file_to_target(file_name, pg_hard_delete_true)
 
     # Should remove the 2 records we added manually
     with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 7
 
 
@@ -644,38 +643,38 @@ def test_activate_version_soft_delete(cratedb_target):
     file_name = f"{table_name}.singer"
     full_table_name = cratedb_target.config["default_target_schema"] + "." + table_name
     with engine.connect() as connection, connection.begin():
-        result = connection.execute(sqlalchemy.text(f"DROP TABLE IF EXISTS {full_table_name}"))
+        result = connection.execute(sa.text(f"DROP TABLE IF EXISTS {full_table_name}"))
     postgres_config_soft_delete = copy.deepcopy(cratedb_target._config)
     postgres_config_soft_delete["hard_delete"] = False
     pg_soft_delete = TargetCrateDB(config=postgres_config_soft_delete)
     singer_file_to_target(file_name, pg_soft_delete)
 
     with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 7
     with engine.connect() as connection, connection.begin():
         # Add a record like someone would if they weren't using the tap target combo
         result = connection.execute(
-            sqlalchemy.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual1', 'Meltano')")
+            sa.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual1', 'Meltano')")
         )
         result = connection.execute(
-            sqlalchemy.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual2', 'Meltano')")
+            sa.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual2', 'Meltano')")
         )
         # CrateDB-specific
-        connection.execute(sqlalchemy.text(f"REFRESH TABLE {full_table_name}"))
+        connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
     with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 9
 
     singer_file_to_target(file_name, pg_soft_delete)
 
     # Should have all records including the 2 we added manually
     with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 9
 
         result = connection.execute(
-            sqlalchemy.text(f'SELECT * FROM {full_table_name} where "{METADATA_COLUMN_PREFIX}_deleted_at" is NOT NULL')
+            sa.text(f'SELECT * FROM {full_table_name} where "{METADATA_COLUMN_PREFIX}_deleted_at" is NOT NULL')
         )
         assert result.rowcount == 2
 
@@ -687,7 +686,7 @@ def test_activate_version_deletes_data_properly(cratedb_target):
     file_name = f"{table_name}.singer"
     full_table_name = cratedb_target.config["default_target_schema"] + "." + table_name
     with engine.connect() as connection, connection.begin():
-        result = connection.execute(sqlalchemy.text(f"DROP TABLE IF EXISTS {full_table_name}"))
+        result = connection.execute(sa.text(f"DROP TABLE IF EXISTS {full_table_name}"))
 
     postgres_config_soft_delete = copy.deepcopy(cratedb_target._config)
     postgres_config_soft_delete["hard_delete"] = True
@@ -695,19 +694,19 @@ def test_activate_version_deletes_data_properly(cratedb_target):
     singer_file_to_target(file_name, pg_hard_delete)
     # Will populate us with 7 records
     with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 7
     with engine.connect() as connection, connection.begin():
         result = connection.execute(
-            sqlalchemy.text(f"INSERT INTO {full_table_name} (code, \"name\") VALUES('Manual1', 'Meltano')")
+            sa.text(f"INSERT INTO {full_table_name} (code, \"name\") VALUES('Manual1', 'Meltano')")
         )
         result = connection.execute(
-            sqlalchemy.text(f"INSERT INTO {full_table_name} (code, \"name\") VALUES('Manual2', 'Meltano')")
+            sa.text(f"INSERT INTO {full_table_name} (code, \"name\") VALUES('Manual2', 'Meltano')")
         )
         # CrateDB-specific
-        connection.execute(sqlalchemy.text(f"REFRESH TABLE {full_table_name}"))
+        connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
     with engine.connect() as connection:
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 9
 
     # Only has a schema and one activate_version message, should delete all records
@@ -716,8 +715,8 @@ def test_activate_version_deletes_data_properly(cratedb_target):
     singer_file_to_target(file_name, pg_hard_delete)
     with engine.connect() as connection:
         # CrateDB-specific
-        connection.execute(sqlalchemy.text(f"REFRESH TABLE {full_table_name}"))
-        result = connection.execute(sqlalchemy.text(f"SELECT * FROM {full_table_name}"))
+        connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
+        result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 0
 
 
