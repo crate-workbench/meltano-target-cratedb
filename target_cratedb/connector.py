@@ -137,7 +137,7 @@ class CrateDBConnector(PostgresConnector):
                 if "type" in storage_properties and storage_properties["type"] == "vector":
                     # On PostgreSQL/pgvector, use the corresponding type definition
                     # from its SQLAlchemy dialect.
-                    return FloatVector(storage_properties["dim"])
+                    return FloatVector(dimensions=storage_properties["dim"])
 
             # Discover/translate inner types.
             inner_type = resolve_array_inner_type(jsonschema_type)
