@@ -266,4 +266,7 @@ release = [
   { cmd = "twine upload dist/*" },
 ]
 
-test = { cmd = "pytest" }
+test = [
+  { shell = "MELTANO_CRATEDB_STRATEGY_DIRECT=true pytest" },
+  { shell = "MELTANO_CRATEDB_STRATEGY_DIRECT=false pytest" },
+]

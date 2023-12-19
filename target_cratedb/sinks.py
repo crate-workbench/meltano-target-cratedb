@@ -1,13 +1,17 @@
 """CrateDB target sink class, which handles writing streams."""
 import datetime
+import os
 import time
 from typing import List, Optional, Union
 
 import sqlalchemy as sa
 from pendulum import now
+from sqlalchemy.util import asbool
 from target_postgres.sinks import PostgresSink
 
 from target_cratedb.connector import CrateDBConnector
+
+MELTANO_CRATEDB_STRATEGY_DIRECT = asbool(os.getenv("MELTANO_CRATEDB_STRATEGY_DIRECT", "true"))
 
 
 class CrateDBSink(PostgresSink):
@@ -17,6 +21,15 @@ class CrateDBSink(PostgresSink):
 
     soft_delete_column_name = "__sdc_deleted_at"
     version_column_name = "__sdc_table_version"
+
+    def __init__(self, *args, **kwargs):
+        """Initialize SQL Sink. See super class for more details."""
+        super().__init__(*args, **kwargs)
+
+        # Whether to use the Meltano standard strategy, looping the data
+        # through a temporary table, or whether to directly apply the DML
+        # operations on the target table.
+        self.strategy_direct = MELTANO_CRATEDB_STRATEGY_DIRECT
 
     # Record processing
 
@@ -112,7 +125,9 @@ class CrateDBSink(PostgresSink):
         Args:
             context: Stream partition or context dictionary.
         """
-        # Use one connection so we do this all in a single transaction
+
+        # The PostgreSQL adapter uses only one connection, so we do this all in a single transaction.
+        # The CrateDB adapter will use a separate connection, to make `REFRESH TABLE ...` work.
         with self.connector._connect() as connection, connection.begin():
             # Check structure of table
             table: sa.Table = self.connector.prepare_table(
@@ -122,21 +137,30 @@ class CrateDBSink(PostgresSink):
                 as_temp_table=False,
                 connection=connection,
             )
-            # Insert into table
-            self.bulk_insert_records(
-                table=table,
-                schema=self.schema,
-                primary_keys=self.key_properties,
-                records=context["records"],
-                connection=connection,
-            )
-            # FIXME: Upserts do not work yet.
-            """
+
+            # Insert directly into target table.
+            # This can be used as a surrogate if the regular temptable-upsert
+            # procedure doesn't work, or isn't applicable for performance reasons.
+            if self.strategy_direct:
+                self.bulk_insert_records(
+                    table=table,
+                    schema=self.schema,
+                    primary_keys=self.key_properties,
+                    records=context["records"],
+                    connection=connection,
+                )
+                self.refresh_table(table)
+                return
+
             # Create a temp table (Creates from the table above)
+            # CrateDB: Need to pre-compute full-qualified table name, and quoted variant,
+            #          for satisfying both Meltano, and for running a `REFRESH TABLE`.
+            temp_full_table_name = f"{self.schema_name}.{self.temp_table_name}"
             temp_table: sa.Table = self.connector.copy_table_structure(
-                full_table_name=self.temp_table_name,
+                full_table_name=temp_full_table_name,
                 from_table=table,
-                as_temp_table=True,
+                # CrateDB does not provide temporary tables.
+                as_temp_table=False,
                 connection=connection,
             )
             # Insert into temp table
@@ -147,6 +171,11 @@ class CrateDBSink(PostgresSink):
                 records=context["records"],
                 connection=connection,
             )
+
+        # Run a new "transaction" to synchronize write operations.
+        with self.connector._connect() as connection:
+            self.refresh_table(temp_table)
+
             # Merge data from Temp table to main table
             self.upsert(
                 from_table=temp_table,
@@ -157,14 +186,15 @@ class CrateDBSink(PostgresSink):
             )
             # Drop temp table
             self.connector.drop_table(table=temp_table, connection=connection)
-            """
 
-    def upsertX(
+        self.refresh_table(table)
+
+    def upsert(
         self,
         from_table: sa.Table,
         to_table: sa.Table,
         schema: dict,
-        join_keys: List[sa.Column],
+        join_keys: List[str],
         connection: sa.engine.Connection,
     ) -> Optional[int]:
         """Merge upsert data from one table to another.
@@ -181,7 +211,6 @@ class CrateDBSink(PostgresSink):
             report number of records affected/inserted.
 
         """
-
         if self.append_only is True:
             # Insert
             select_stmt = sa.select(from_table.columns).select_from(from_table)
@@ -189,16 +218,17 @@ class CrateDBSink(PostgresSink):
             connection.execute(insert_stmt)
         else:
             join_predicates = []
+            to_table_key: sa.Column
             for key in join_keys:
-                from_table_key: sa.Column = from_table.columns[key]  # type: ignore[call-overload]
-                to_table_key: sa.Column = to_table.columns[key]  # type: ignore[call-overload]
-                join_predicates.append(from_table_key == to_table_key)  # type: ignore[call-overload]
+                from_table_key: sa.Column = from_table.columns[key]
+                to_table_key = to_table.columns[key]
+                join_predicates.append(from_table_key == to_table_key)
 
             join_condition = sa.and_(*join_predicates)
 
             where_predicates = []
             for key in join_keys:
-                to_table_key: sa.Column = to_table.columns[key]  # type: ignore[call-overload,no-redef]
+                to_table_key = to_table.columns[key]
                 where_predicates.append(to_table_key.is_(None))
             where_condition = sa.and_(*where_predicates)
 
@@ -212,18 +242,50 @@ class CrateDBSink(PostgresSink):
             connection.execute(insert_stmt)
 
             # Update
+            # CrateDB does not support `UPDATE ... FROM` statements.
+            # https://github.com/crate/crate/issues/15204
+            """
             where_condition = join_condition
             update_columns = {}
             for column_name in self.schema["properties"].keys():
                 from_table_column: sa.Column = from_table.columns[column_name]
                 to_table_column: sa.Column = to_table.columns[column_name]
-                # Prevent: `Updating a primary key is not supported`
+                # For CrateDB, skip updating primary key columns. Otherwise, CrateDB
+                # will fail like `ColumnValidationException[Validation failed for code:
+                # Updating a primary key is not supported]`.
                 if to_table_column.primary_key:
                     continue
                 update_columns[to_table_column] = from_table_column
 
             update_stmt = sa.update(to_table).where(where_condition).values(update_columns)
             connection.execute(update_stmt)
+            """
+
+            # Update, Python-emulated
+            to_table_pks = to_table.primary_key.columns
+            from_table_pks = from_table.primary_key.columns
+
+            where_condition = join_condition
+            select_stmt = sa.select(from_table).where(where_condition)
+            cursor = connection.execute(select_stmt)
+            for record in cursor.fetchall():
+                record_dict = record._asdict()
+                update_where_clauses = []
+                for from_table_pk, to_table_pk in zip(from_table_pks, to_table_pks):
+                    # Get primary key name and value from record.
+                    pk_name = from_table_pk.name
+                    pk_value = record_dict[pk_name]
+
+                    # CrateDB: Need to omit primary keys from record.
+                    # ColumnValidationException[Validation failed for id: Updating a primary key is not supported]
+                    del record_dict[pk_name]
+
+                    # Build up where clauses for UPDATE statement.
+                    update_where_clauses.append(to_table_pk == pk_value)
+
+                update_where_condition = sa.and_(*update_where_clauses)
+                update_stmt = sa.update(to_table).values(record_dict).where(update_where_condition)
+                connection.execute(update_stmt)
 
         return None
 
@@ -269,6 +331,7 @@ class CrateDBSink(PostgresSink):
                         f'OR "{self.version_column_name}" IS NULL'
                     )
                 )
+                self.refresh_table(self.full_table_name)
                 return
 
             if not self.connector.column_exists(
@@ -296,6 +359,8 @@ class CrateDBSink(PostgresSink):
             )
             connection.execute(query)
 
+            self.refresh_table(self.full_table_name)
+
     def generate_insert_statement(
         self,
         full_table_name: str,
@@ -314,3 +379,16 @@ class CrateDBSink(PostgresSink):
         metadata = sa.MetaData(schema=self.schema_name)
         table = sa.Table(full_table_name, metadata, *columns)
         return sa.insert(table)
+
+    def refresh_table(self, table: Union[sa.Table, str]):
+        """
+        Synchronize write operations on CrateDB.
+        """
+        with self.connector._connect() as connection:
+            if isinstance(table, sa.Table):
+                table_full = f'"{table.schema}"."{table.name}"'
+            elif isinstance(table, str):
+                table_full = table
+            else:
+                raise TypeError(f"Unknown type for `table`: {table}")
+            connection.exec_driver_sql(f"REFRESH TABLE {table_full};")

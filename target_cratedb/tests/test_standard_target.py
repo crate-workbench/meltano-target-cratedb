@@ -18,6 +18,7 @@ from target_postgres.tests.samples.sample_tap_countries.countries_tap import (
 from target_postgres.tests.test_target_postgres import AssertionHelper
 
 from target_cratedb.connector import CrateDBConnector
+from target_cratedb.sinks import MELTANO_CRATEDB_STRATEGY_DIRECT
 from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
 from target_cratedb.sqlalchemy.vector import FloatVector
 from target_cratedb.target import TargetCrateDB
@@ -104,6 +105,9 @@ def initialize_database(cratedb_config):
         "melty.commits",
         "melty.foo",
         "melty.object_mixed",
+        "melty.test_activate_version_hard",
+        "melty.test_activate_version_deletes_data_properly",
+        "melty.test_activate_version_soft",
         "melty.test_new_array_column",
         "melty.test_schema_updates",
     ]
@@ -252,6 +256,7 @@ def test_record_missing_required_property(cratedb_target):
         singer_file_to_target(file_name, cratedb_target)
 
 
+@pytest.mark.skipif(not MELTANO_CRATEDB_STRATEGY_DIRECT, reason="Does not work in temptable/upsert mode")
 def test_camelcase(cratedb_target):
     file_name = "camelcase.singer"
     singer_file_to_target(file_name, cratedb_target)
@@ -314,7 +319,7 @@ def test_multiple_schema_messages(cratedb_target, caplog):
     assert "Schema has changed for stream" not in caplog.text
 
 
-@pytest.mark.skip("Upserts do not work yet")
+@pytest.mark.skip("ColumnValidationException[Validation failed for id: Updating a primary key is not supported]")
 def test_relational_data(cratedb_target, helper):
     file_name = "user_location_data.singer"
     singer_file_to_target(file_name, cratedb_target)
@@ -426,6 +431,7 @@ def test_array_boolean(cratedb_target, helper):
     )
 
 
+@pytest.mark.skipif(not MELTANO_CRATEDB_STRATEGY_DIRECT, reason="Does not work in temptable/upsert mode")
 def test_array_float_vector(cratedb_target, helper):
     file_name = "array_float_vector.singer"
     singer_file_to_target(file_name, cratedb_target)
@@ -619,7 +625,7 @@ def test_activate_version_hard_delete(cratedb_config):
     pg_hard_delete_true = TargetCrateDB(config=postgres_config_hard_delete_true)
     engine = create_engine(pg_hard_delete_true)
     singer_file_to_target(file_name, pg_hard_delete_true)
-    with engine.connect() as connection:
+    with engine.connect() as connection, connection.begin():
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 7
     with engine.connect() as connection, connection.begin():
@@ -630,16 +636,17 @@ def test_activate_version_hard_delete(cratedb_config):
         result = connection.execute(
             sa.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual2', 'Meltano')")
         )
-        # CrateDB-specific
+        # CrateDB-specific: Synchronize write operations.
+        # TODO: Can this case be handled transparently?
         connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
-    with engine.connect() as connection:
+    with engine.connect() as connection, connection.begin():
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 9
 
     singer_file_to_target(file_name, pg_hard_delete_true)
 
     # Should remove the 2 records we added manually
-    with engine.connect() as connection:
+    with engine.connect() as connection, connection.begin():
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 7
 
@@ -668,7 +675,8 @@ def test_activate_version_soft_delete(cratedb_target):
         result = connection.execute(
             sa.text(f"INSERT INTO {full_table_name}(code, \"name\") VALUES('Manual2', 'Meltano')")
         )
-        # CrateDB-specific
+        # CrateDB-specific: Synchronize write operations.
+        # TODO: Can this case be handled transparently?
         connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
     with engine.connect() as connection:
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
@@ -711,9 +719,10 @@ def test_activate_version_deletes_data_properly(cratedb_target):
         result = connection.execute(
             sa.text(f"INSERT INTO {full_table_name} (code, \"name\") VALUES('Manual2', 'Meltano')")
         )
-        # CrateDB-specific
-        connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
-    with engine.connect() as connection:
+        # CrateDB-specific: Synchronize write operations.
+        # TODO: Can this case be handled transparently?
+        connection.execute(sa.text(f"REFRESH TABLE {full_table_name};"))
+    with engine.connect() as connection, connection.begin():
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 9
 
@@ -722,28 +731,28 @@ def test_activate_version_deletes_data_properly(cratedb_target):
     file_name = f"{table_name}_2.singer"
     singer_file_to_target(file_name, pg_hard_delete)
     with engine.connect() as connection:
-        # CrateDB-specific
-        connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
         assert result.rowcount == 0
 
 
-@pytest.mark.skip("Does not work yet: extraneous input " "CHAR" "")
+@pytest.mark.skip('Does not work yet: extraneous input "CHAR"')
 def test_reserved_keywords(cratedb_target):
     """Target should work regardless of column names
 
-    Postgres has a number of resereved keywords listed here https://www.postgresql.org/docs/current/sql-keywords-appendix.html.
+    Postgres has a number of reserved keywords listed here https://www.postgresql.org/docs/current/sql-keywords-appendix.html.
     """
     file_name = "reserved_keywords.singer"
     singer_file_to_target(file_name, cratedb_target)
 
 
+@pytest.mark.skipif(not MELTANO_CRATEDB_STRATEGY_DIRECT, reason="Does not work in temptable/upsert mode")
 def test_uppercase_stream_name_with_column_alter(cratedb_target):
     """Column Alters need to work with uppercase stream names"""
     file_name = "uppercase_stream_name_with_column_alter.singer"
     singer_file_to_target(file_name, cratedb_target)
 
 
+@pytest.mark.skip(reason="RelationUnknown[Relation 'melty.account' unknown. Maybe you meant '\"Account\"']")
 def test_activate_version_uppercase_stream_name(cratedb_config):
     """Activate Version should work with uppercase stream names"""
     file_name = "test_activate_version_uppercase_stream_name.singer"

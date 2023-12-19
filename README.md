@@ -123,6 +123,25 @@ LIMIT
 ```
 
 
+## Write Strategy
+
+Meltano's `target-postgres` uses a temporary table to receive data first, and
+then update the effective target table with information from that.
+
+CrateDB's `target-cratedb` offers the possibility to also write directly into
+the target table, yielding speed improvements, which may be important in certain
+situations.
+
+The environment variable `MELTANO_CRATEDB_STRATEGY_DIRECT` controls the behavior.
+
+- `MELTANO_CRATEDB_STRATEGY_DIRECT=true`: Directly write to the target table.
+- `MELTANO_CRATEDB_STRATEGY_DIRECT=false`: Use a temporary table to stage updates.
+
+Note: The current default value is `true`, effectively short-cutting the native
+way of how Meltano handles database updates. The reason is that the vanilla way
+does not satisfy all test cases, yet.
+
+
 ## Vector Store Support
 
 In order to support CrateDB's vector store feature, i.e. its `FLOAT_VECTOR`
