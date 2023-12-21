@@ -92,10 +92,10 @@ dynamic = [
   "version",
 ]
 dependencies = [
-  "crate[sqlalchemy]",
   "cratedb-toolkit",
   'importlib-resources; python_version < "3.9"', # "meltanolabs-target-postgres==0.0.9",
   "meltanolabs-target-postgres@ git+https://github.com/singer-contrib/meltanolabs-target-postgres.git@pgvector",
+  "sqlalchemy-cratedb[vector]@ git+https://github.com/crate-workbench/sqlalchemy-cratedb@amo/type-float-vector",
 ]
 [project.optional-dependencies]
 all = [
