@@ -3,6 +3,7 @@
 ## In progress
 - Add support for container types `ARRAY`, `OBJECT`, and `FLOAT_VECTOR`.
 - Improve write operations to be closer to `target-postgres`.
+- Switch to new SQLAlchemy dialect for CrateDB.
 - Removed workaround for `_`-prefixed column names, which needs
   CrateDB 6.2 and higher.
 
