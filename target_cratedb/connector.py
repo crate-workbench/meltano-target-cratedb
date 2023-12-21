@@ -7,13 +7,14 @@ from builtins import issubclass
 from datetime import datetime
 
 import sqlalchemy as sa
-from crate.client.sqlalchemy.types import ObjectType, ObjectTypeImpl, _ObjectArray
 from singer_sdk import typing as th
 from singer_sdk.helpers._typing import is_array_type, is_boolean_type, is_integer_type, is_number_type, is_object_type
+from sqlalchemy_cratedb.type import FloatVector, ObjectType
+from sqlalchemy_cratedb.type.array import _ObjectArray
+from sqlalchemy_cratedb.type.object import ObjectTypeImpl
 from target_postgres.connector import NOTYPE, PostgresConnector
 
 from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
-from target_cratedb.sqlalchemy.vector import FloatVector
 
 
 class CrateDBConnector(PostgresConnector):
@@ -225,6 +226,9 @@ class CrateDBConnector(PostgresConnector):
                 return 0, _len
             if isinstance(sql_type, NOTYPE):
                 return 0, _len
+
+            if not hasattr(sql_type, "python_type"):
+                raise TypeError(f"Resolving type for sort key failed: {sql_type}")
 
             _pytype = t.cast(type, sql_type.python_type)
             if issubclass(_pytype, (str, bytes)):
