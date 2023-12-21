@@ -1,11 +1,11 @@
 from _decimal import Decimal
 from datetime import datetime
+from typing import Any, Union
 
+import crate.client.http
 import sqlalchemy as sa
-from crate.client.http import CrateJsonEncoder
-from crate.client.sqlalchemy.dialect import ARRAY, TYPES_MAP, DateTime
-from crate.client.sqlalchemy.types import _ObjectArray
-from sqlalchemy.sql import sqltypes
+from sqlalchemy_cratedb.dialect import TYPES_MAP, DateTime
+from sqlalchemy_cratedb.type.array import _ObjectArray
 
 
 def patch_sqlalchemy():
@@ -19,20 +19,20 @@ def patch_types():
 
     TODO: Upstream to crate-python.
     """
-    TYPES_MAP["bigint"] = sqltypes.BIGINT
-    TYPES_MAP["bigint_array"] = ARRAY(sqltypes.BIGINT)
-    TYPES_MAP["long"] = sqltypes.BIGINT
-    TYPES_MAP["long_array"] = ARRAY(sqltypes.BIGINT)
-    TYPES_MAP["real"] = sqltypes.DOUBLE
-    TYPES_MAP["real_array"] = ARRAY(sqltypes.DOUBLE)
-    TYPES_MAP["timestamp without time zone"] = sqltypes.TIMESTAMP
-    TYPES_MAP["timestamp with time zone"] = sqltypes.TIMESTAMP
+    TYPES_MAP["bigint"] = sa.BIGINT
+    TYPES_MAP["bigint_array"] = sa.ARRAY(sa.BIGINT)
+    TYPES_MAP["long"] = sa.BIGINT
+    TYPES_MAP["long_array"] = sa.ARRAY(sa.BIGINT)
+    TYPES_MAP["real"] = sa.DOUBLE
+    TYPES_MAP["real_array"] = sa.ARRAY(sa.DOUBLE)
+    TYPES_MAP["timestamp without time zone"] = sa.TIMESTAMP
+    TYPES_MAP["timestamp with time zone"] = sa.TIMESTAMP
 
     # TODO: Can `ARRAY` be inherited from PostgreSQL's
     #       `ARRAY`, to make type checking work?
 
     def as_generic(self, allow_nulltype: bool = False):
-        return sqltypes.ARRAY
+        return sa.ARRAY
 
     _ObjectArray.as_generic = as_generic
 
@@ -58,14 +58,14 @@ def patch_json_encoder():
     TODO: Upstream to crate-python.
     """
 
-    json_encoder_default = CrateJsonEncoder.default
+    json_encoder_default = crate.client.http.json_encoder
 
-    def default(self, o):
-        if isinstance(o, Decimal):
-            return float(o)
-        return json_encoder_default(o)
+    def json_encoder_new(obj: Any) -> Union[int, str, float]:
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return json_encoder_default(obj)
 
-    CrateJsonEncoder.default = default
+    crate.client.http.json_encoder = json_encoder_new
 
 
 def polyfill_refresh_after_dml_engine(engine: sa.Engine):
