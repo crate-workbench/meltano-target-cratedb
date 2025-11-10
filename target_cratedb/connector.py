@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import typing as t
 from builtins import issubclass  # noqa: A004
+from contextlib import contextmanager
 from datetime import datetime
 
 import sqlalchemy as sa
@@ -13,6 +15,7 @@ from sqlalchemy_cratedb.type import FloatVector, ObjectType
 from sqlalchemy_cratedb.type.array import _ObjectArray
 from sqlalchemy_cratedb.type.object import ObjectTypeImpl
 from target_postgres.connector import NOTYPE, PostgresConnector
+from verlib2 import Version
 
 from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
 
@@ -35,6 +38,34 @@ class CrateDBConnector(PostgresConnector):
         engine = super().create_engine()
         polyfill_refresh_after_dml_engine(engine)
         return engine
+
+    @contextmanager
+    def _connect(self) -> t.Iterator[sa.engine.Connection]:
+        """
+        Connect to the database.
+
+        Note: Needs to be overwritten to perform a CrateDB version check.
+        """
+        engine = self._engine
+        with engine.connect().execution_options() as conn:
+            self._check_cratedb_620(conn)
+            yield conn
+        engine.dispose()
+
+    def _check_cratedb_620(self, conn: sa.Connection):
+        """
+        Fail if the CrateDB version is lower than 6.2.
+
+        -- https://github.com/crate/crate/issues/15161
+        """
+        with conn.begin():
+            version_raw = conn.exec_driver_sql("SELECT version()").scalar_one()
+        matches = re.match(r"^CrateDB (\d+\.\d+\.\d+).*", version_raw)
+        if not matches:
+            raise ConnectionError("Unable to inquire CrateDB version")
+        cratedb_version = matches.group(1)
+        if Version(cratedb_version) < Version("6.2"):
+            raise ConnectionError("The connector requires CrateDB 6.2 or higher")
 
     @staticmethod
     def to_sql_type(jsonschema_type: dict) -> sa.types.TypeEngine:
