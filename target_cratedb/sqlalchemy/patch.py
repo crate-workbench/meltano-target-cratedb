@@ -1,7 +1,7 @@
+from _decimal import Decimal
 from datetime import datetime
 
 import sqlalchemy as sa
-from _decimal import Decimal
 from crate.client.http import CrateJsonEncoder
 from crate.client.sqlalchemy.dialect import ARRAY, TYPES_MAP, DateTime
 from crate.client.sqlalchemy.types import _ObjectArray
