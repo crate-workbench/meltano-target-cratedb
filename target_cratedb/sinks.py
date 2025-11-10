@@ -1,4 +1,5 @@
 """CrateDB target sink class, which handles writing streams."""
+
 import datetime
 import os
 import time
