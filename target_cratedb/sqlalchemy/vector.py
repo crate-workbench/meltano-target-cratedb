@@ -109,7 +109,7 @@ class FloatVector(TypeDecorator[t.Sequence[float]]):
     def __init__(self, dimensions: int = None):
         super().__init__(sa.FLOAT, dimensions=dimensions)
 
-    def as_generic(self):
+    def as_generic(self, allow_nulltype: bool = False):
         return sqltypes.ARRAY
 
     def bind_processor(self, dialect: sa.Dialect) -> t.Callable:
