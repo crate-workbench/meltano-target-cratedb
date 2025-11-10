@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typing as t
-from builtins import issubclass
+from builtins import issubclass  # noqa: A004
 from datetime import datetime
 
 import sqlalchemy as sa
