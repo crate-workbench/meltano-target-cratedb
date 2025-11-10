@@ -32,7 +32,7 @@ def patch_types():
     # TODO: Can `ARRAY` be inherited from PostgreSQL's
     #       `ARRAY`, to make type checking work?
 
-    def as_generic(self):
+    def as_generic(self, allow_nulltype: bool = False):
         return sa.ARRAY
 
     _ObjectArray.as_generic = as_generic
