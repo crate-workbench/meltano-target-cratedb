@@ -1,4 +1,4 @@
-""" Attempt at making some standard Target Tests. """
+"""Attempt at making some standard Target Tests."""
 
 from __future__ import annotations
 
