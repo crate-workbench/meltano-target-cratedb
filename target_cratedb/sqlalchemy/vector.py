@@ -42,7 +42,6 @@ def to_db(value: t.Any, dim: t.Optional[int] = None) -> t.Optional[t.List]:
 
 
 class FloatVector(TypeDecorator[t.Sequence[float]]):
-
     """
     An improved implementation of the `FloatVector` data type for CrateDB,
     compared to the previous implementation on behalf of the LangChain adapter.
