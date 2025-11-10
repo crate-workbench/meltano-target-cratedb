@@ -211,10 +211,12 @@ class CrateDBSink(PostgresSink):
             report number of records affected/inserted.
 
         """
+        columns = from_table.columns
+        column_names = columns.keys()
         if self.append_only is True:
             # Insert
-            select_stmt = sa.select(from_table.columns).select_from(from_table)
-            insert_stmt = to_table.insert().from_select(names=list(from_table.columns), select=select_stmt)
+            select_stmt = sa.select(columns).select_from(from_table)  # type: ignore[call-overload]
+            insert_stmt = to_table.insert().from_select(names=column_names, select=select_stmt)
             connection.execute(insert_stmt)
         else:
             join_predicates = []
@@ -233,11 +235,11 @@ class CrateDBSink(PostgresSink):
             where_condition = sa.and_(*where_predicates)
 
             select_stmt = (
-                sa.select(from_table.columns)
+                sa.select(columns)  # type: ignore[call-overload]
                 .select_from(from_table.outerjoin(to_table, join_condition))
                 .where(where_condition)
             )
-            insert_stmt = sa.insert(to_table).from_select(names=list(from_table.columns), select=select_stmt)
+            insert_stmt = sa.insert(to_table).from_select(names=column_names, select=select_stmt)
 
             connection.execute(insert_stmt)
 
