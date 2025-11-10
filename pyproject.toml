@@ -35,7 +35,7 @@ license = { text = "MIT" }
 authors = [
   { name = "Andreas Motl", email = "andreas.motl@crate.io" },
 ]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -58,6 +58,7 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Programming Language :: SQL",
   "Topic :: Adaptive Technologies",
   "Topic :: Communications",
