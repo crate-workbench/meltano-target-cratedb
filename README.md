@@ -18,6 +18,7 @@ and loaders, and based on the [Meltano PostgreSQL target].
 In order to learn more about Singer, Meltano, and friends, navigate to the
 [Singer Intro](./docs/singer-intro.md).
 
+Operating the package successfully needs CrateDB 6.2 or higher.
 
 ## Install
 
