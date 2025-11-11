@@ -1,10 +1,11 @@
 """CrateDB target sink class, which handles writing streams."""
 
+import datetime
 import os
 from typing import List, Optional, Union
 
 import sqlalchemy as sa
-from pendulum import now
+from singer_sdk.sql.connector import FullyQualifiedName
 from sqlalchemy.util import asbool
 from target_postgres.sinks import PostgresSink
 
@@ -213,7 +214,8 @@ class CrateDBSink(PostgresSink):
         if not self.connector.table_exists(self.full_table_name):
             return
 
-        deleted_at = now()
+        deleted_at = datetime.datetime.now(tz=datetime.timezone.utc)
+
         # Different from SingerSDK as we need to handle types the
         # same as SCHEMA messsages
         datetime_type = self.connector.to_sql_type({"type": "string", "format": "date-time"})
@@ -298,10 +300,12 @@ class CrateDBSink(PostgresSink):
         Synchronize write operations on CrateDB.
         """
         with self.connector._connect() as connection:
-            if isinstance(table, sa.Table):
+            if isinstance(table, FullyQualifiedName):
+                table_full = str(table)
+            elif isinstance(table, sa.Table):
                 table_full = f'"{table.schema}"."{table.name}"'
             elif isinstance(table, str):
                 table_full = table
             else:
-                raise TypeError(f"Unknown type for `table`: {table}")
+                raise TypeError(f"Unknown type `{type(table)}` for table: {table}")
             connection.exec_driver_sql(f"REFRESH TABLE {table_full};")
