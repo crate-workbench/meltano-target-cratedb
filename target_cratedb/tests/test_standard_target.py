@@ -9,9 +9,10 @@ from contextlib import redirect_stdout
 import jsonschema
 import pytest
 import sqlalchemy as sa
-from crate.client.sqlalchemy.types import ObjectTypeImpl
 from singer_sdk.exceptions import MissingKeyPropertiesError
 from singer_sdk.testing import sync_end_to_end
+from sqlalchemy_cratedb.type import FloatVector
+from sqlalchemy_cratedb.type.object import ObjectTypeImpl
 from target_postgres.tests.samples.aapl.aapl import Fundamentals
 from target_postgres.tests.samples.sample_tap_countries.countries_tap import (
     SampleTapCountries,
@@ -21,7 +22,6 @@ from target_postgres.tests.test_target_postgres import AssertionHelper
 from target_cratedb.connector import CrateDBConnector
 from target_cratedb.sinks import MELTANO_CRATEDB_STRATEGY_DIRECT
 from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
-from target_cratedb.sqlalchemy.vector import FloatVector
 from target_cratedb.target import TargetCrateDB
 
 try:
