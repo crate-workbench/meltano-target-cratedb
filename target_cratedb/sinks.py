@@ -1,8 +1,6 @@
 """CrateDB target sink class, which handles writing streams."""
 
-import datetime
 import os
-import time
 from typing import List, Optional, Union
 
 import sqlalchemy as sa
@@ -20,9 +18,6 @@ class CrateDBSink(PostgresSink):
 
     connector_class = CrateDBConnector
 
-    soft_delete_column_name = "__sdc_deleted_at"
-    version_column_name = "__sdc_table_version"
-
     def __init__(self, *args, **kwargs):
         """Initialize SQL Sink. See super class for more details."""
         super().__init__(*args, **kwargs)
@@ -31,91 +26,6 @@ class CrateDBSink(PostgresSink):
         # through a temporary table, or whether to directly apply the DML
         # operations on the target table.
         self.strategy_direct = MELTANO_CRATEDB_STRATEGY_DIRECT
-
-    # Record processing
-
-    def _add_sdc_metadata_to_record(
-        self,
-        record: dict,
-        message: dict,
-        context: dict,
-    ) -> None:
-        """Populate metadata _sdc columns from incoming record message.
-
-        Record metadata specs documented at:
-        https://sdk.meltano.com/en/latest/implementation/record_metadata.html
-
-        Args:
-            record: Individual record in the stream.
-            message: The record message.
-            context: Stream partition or context dictionary.
-        """
-        record["__sdc_extracted_at"] = message.get("time_extracted")
-        record["__sdc_received_at"] = datetime.datetime.now(
-            tz=datetime.timezone.utc,
-        ).isoformat()
-        record["__sdc_batched_at"] = (
-            context.get("batch_start_time", None) or datetime.datetime.now(tz=datetime.timezone.utc)
-        ).isoformat()
-        record["__sdc_deleted_at"] = record.get("__sdc_deleted_at")
-        record["__sdc_sequence"] = int(round(time.time() * 1000))
-        record["__sdc_table_version"] = message.get("version")
-        record["__sdc_sync_started_at"] = self.sync_started_at
-
-    def _add_sdc_metadata_to_schema(self) -> None:
-        """Add _sdc metadata columns.
-
-        Record metadata specs documented at:
-        https://sdk.meltano.com/en/latest/implementation/record_metadata.html
-        """
-        properties_dict = self.schema["properties"]
-        for col in (
-            "__sdc_extracted_at",
-            "__sdc_received_at",
-            "__sdc_batched_at",
-            "__sdc_deleted_at",
-        ):
-            properties_dict[col] = {
-                "type": ["null", "string"],
-                "format": "date-time",
-            }
-        for col in ("__sdc_sequence", "__sdc_table_version", "__sdc_sync_started_at"):
-            properties_dict[col] = {"type": ["null", "integer"]}
-
-    def _remove_sdc_metadata_from_schema(self) -> None:
-        """Remove _sdc metadata columns.
-
-        Record metadata specs documented at:
-        https://sdk.meltano.com/en/latest/implementation/record_metadata.html
-        """
-        properties_dict = self.schema["properties"]
-        for col in (
-            "__sdc_extracted_at",
-            "__sdc_received_at",
-            "__sdc_batched_at",
-            "__sdc_deleted_at",
-            "__sdc_sequence",
-            "__sdc_table_version",
-            "__sdc_sync_started_at",
-        ):
-            properties_dict.pop(col, None)
-
-    def _remove_sdc_metadata_from_record(self, record: dict) -> None:
-        """Remove metadata _sdc columns from incoming record message.
-
-        Record metadata specs documented at:
-        https://sdk.meltano.com/en/latest/implementation/record_metadata.html
-
-        Args:
-            record: Individual record in the stream.
-        """
-        record.pop("__sdc_extracted_at", None)
-        record.pop("__sdc_received_at", None)
-        record.pop("__sdc_batched_at", None)
-        record.pop("__sdc_deleted_at", None)
-        record.pop("__sdc_sequence", None)
-        record.pop("__sdc_table_version", None)
-        record.pop("__sdc_sync_started_at", None)
 
     def process_batch(self, context: dict) -> None:
         """Process a batch with the given batch context.

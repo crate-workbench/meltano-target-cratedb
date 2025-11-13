@@ -30,7 +30,7 @@ except ImportError:
     from importlib_resources import files as resource_files  # type: ignore[no-redef]
 
 
-METADATA_COLUMN_PREFIX = "__sdc"
+METADATA_COLUMN_PREFIX = "_sdc"
 
 
 @pytest.fixture(scope="session")
