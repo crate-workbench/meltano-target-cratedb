@@ -6,22 +6,19 @@ import copy
 import io
 from contextlib import redirect_stdout
 
-import jsonschema
 import pytest
 import sqlalchemy as sa
-from crate.client.sqlalchemy.types import ObjectTypeImpl
-from singer_sdk.exceptions import MissingKeyPropertiesError
+from singer_sdk.exceptions import InvalidRecord, MissingKeyPropertiesError
 from singer_sdk.testing import sync_end_to_end
-from target_postgres.tests.samples.aapl.aapl import Fundamentals
-from target_postgres.tests.samples.sample_tap_countries.countries_tap import (
-    SampleTapCountries,
-)
-from target_postgres.tests.test_target_postgres import AssertionHelper
+from sqlalchemy_cratedb.type import FloatVector
+from sqlalchemy_cratedb.type.object import ObjectTypeImpl
+from tap_countries.tap import TapCountries
+from tap_fundamentals import Fundamentals
+from target_postgres.tests.test_target_postgres import verify_data
 
 from target_cratedb.connector import CrateDBConnector
 from target_cratedb.sinks import MELTANO_CRATEDB_STRATEGY_DIRECT
 from target_cratedb.sqlalchemy.patch import polyfill_refresh_after_dml_engine
-from target_cratedb.sqlalchemy.vector import FloatVector
 from target_cratedb.target import TargetCrateDB
 
 try:
@@ -30,7 +27,7 @@ except ImportError:
     from importlib_resources import files as resource_files  # type: ignore[no-redef]
 
 
-METADATA_COLUMN_PREFIX = "__sdc"
+METADATA_COLUMN_PREFIX = "_sdc"
 
 
 @pytest.fixture(scope="session")
@@ -120,11 +117,6 @@ def initialize_database(cratedb_config):
         conn.exec_driver_sql("CREATE TABLE IF NOT EXISTS melty.foo (a INT);")
 
 
-@pytest.fixture
-def helper(cratedb_target) -> AssertionHelper:
-    return AssertionHelper(target=cratedb_target, metadata_column_prefix=METADATA_COLUMN_PREFIX)
-
-
 def singer_file_to_target(file_name, target) -> None:
     """Singer file to Target, emulates a tap run
 
@@ -153,6 +145,42 @@ def singer_file_to_target(file_name, target) -> None:
     target.listen(buf)
 
 
+def verify_schema(
+    target: TargetCrateDB,
+    table_name: str,
+    check_columns: dict = None,
+):
+    """Checks whether the schema of a database table matches the provided column definitions.
+
+    Args:
+        target: The target to obtain a database connection from.
+        table_name: The schema and table name of the table to check data for.
+        check_columns: A dictionary mapping column names to their definitions. Currently,
+            it is all about the `type` attribute which is compared.
+        metadata_column_prefix: The prefix string for metadata columns. Usually `_sdc`.
+    """
+    check_columns = check_columns or {}
+    engine = create_engine(target)
+    schema = target.config["default_target_schema"]
+    with engine.connect() as connection:
+        meta = sa.MetaData()
+        table = sa.Table(table_name, meta, schema=schema, autoload_with=connection)
+        for column in table.c:
+            # Ignore `_sdc` metadata columns when verifying table schema.
+            if column.name.startswith(METADATA_COLUMN_PREFIX):
+                continue
+            try:
+                column_type_expected = check_columns[column.name]["type"]
+            except KeyError as ex:
+                raise ValueError(f"Invalid check_columns - missing definition for column: {column.name}") from ex
+            if not isinstance(column.type, column_type_expected):
+                raise TypeError(
+                    f"Column '{column.name}' (with type '{column.type}') "
+                    f"does not match expected type: {column_type_expected}"
+                )
+    engine.dispose()
+
+
 # TODO should set schemas for each tap individually so we don't collide
 
 
@@ -169,7 +197,7 @@ def test_sqlalchemy_url_config(cratedb_config):
     port = cratedb_config["port"]
 
     config = {"sqlalchemy_url": f"crate://{user}:{password}@{host}:{port}/{database}"}
-    tap = SampleTapCountries(config={}, state=None)
+    tap = TapCountries(config={}, state=None)
     target = TargetCrateDB(config=config)
     sync_end_to_end(tap, target)
 
@@ -225,7 +253,7 @@ def test_port_config():
 
 # Test name would work well
 def test_countries_to_cratedb(cratedb_config):
-    tap = SampleTapCountries(config={}, state=None)
+    tap = TapCountries(config={}, state=None)
     target = TargetCrateDB(config=cratedb_config)
     sync_end_to_end(tap, target)
 
@@ -252,9 +280,10 @@ def test_record_missing_key_property(cratedb_target):
 
 
 def test_record_missing_required_property(cratedb_target):
-    with pytest.raises(jsonschema.exceptions.ValidationError):
+    with pytest.raises(InvalidRecord) as e:
         file_name = "record_missing_required_property.singer"
         singer_file_to_target(file_name, cratedb_target)
+    assert "Record Message Validation Error: 'id' is a required property" in str(e.value)
 
 
 @pytest.mark.skipif(not MELTANO_CRATEDB_STRATEGY_DIRECT, reason="Does not work in temptable/upsert mode")
@@ -269,11 +298,11 @@ def test_special_chars_in_attributes(cratedb_target):
     singer_file_to_target(file_name, cratedb_target)
 
 
-def test_optional_attributes(cratedb_target, helper):
+def test_optional_attributes(cratedb_target):
     file_name = "optional_attributes.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {"id": 1, "optional": "This is optional"}
-    helper.verify_data("test_optional_attributes", 4, "id", row)
+    verify_data(cratedb_target, "test_optional_attributes", 4, "id", row)
 
 
 def test_schema_no_properties(cratedb_target):
@@ -282,7 +311,7 @@ def test_schema_no_properties(cratedb_target):
     singer_file_to_target(file_name, cratedb_target)
 
 
-def test_schema_updates(cratedb_target, helper):
+def test_schema_updates(cratedb_target):
     file_name = "schema_updates.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {
@@ -294,16 +323,16 @@ def test_schema_updates(cratedb_target, helper):
         "a5": None,
         "a6": None,
     }
-    helper.verify_data("test_schema_updates", 6, "id", row)
+    verify_data(cratedb_target, "test_schema_updates", 6, "id", row)
 
 
-def test_multiple_state_messages(cratedb_target, helper):
+def test_multiple_state_messages(cratedb_target):
     file_name = "multiple_state_messages.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {"id": 1, "metric": 100}
-    helper.verify_data("test_multiple_state_messages_a", 6, "id", row)
+    verify_data(cratedb_target, "test_multiple_state_messages_a", 6, "id", row)
     row = {"id": 1, "metric": 110}
-    helper.verify_data("test_multiple_state_messages_b", 6, "id", row)
+    verify_data(cratedb_target, "test_multiple_state_messages_b", 6, "id", row)
 
 
 # TODO test that data is correct
@@ -321,7 +350,7 @@ def test_multiple_schema_messages(cratedb_target, caplog):
 
 
 @pytest.mark.skip("ColumnValidationException[Validation failed for id: Updating a primary key is not supported]")
-def test_relational_data(cratedb_target, helper):
+def test_relational_data(cratedb_target):
     file_name = "user_location_data.singer"
     singer_file_to_target(file_name, cratedb_target)
 
@@ -378,12 +407,12 @@ def test_relational_data(cratedb_target, helper):
         },
     ]
 
-    helper.verify_data("test_users", 8, "id", users)
-    helper.verify_data("test_locations", 5, "id", locations)
-    helper.verify_data("test_user_in_location", 5, "id", user_in_location)
+    verify_data("test_users", 8, "id", users)
+    verify_data("test_locations", 5, "id", locations)
+    verify_data("test_user_in_location", 5, "id", user_in_location)
 
 
-def test_no_primary_keys(cratedb_target, helper):
+def test_no_primary_keys(cratedb_target):
     """We run both of these tests twice just to ensure that no records are removed and append only works properly"""
     engine = create_engine(cratedb_target)
     table_name = "test_no_pk"
@@ -403,7 +432,7 @@ def test_no_primary_keys(cratedb_target, helper):
     singer_file_to_target(file_name, cratedb_target)
 
     # Will populate 22 records, we run this twice.
-    helper.verify_data(table_name, 16)
+    verify_data(cratedb_target, table_name, 16)
 
 
 def test_no_type(cratedb_target):
@@ -411,19 +440,20 @@ def test_no_type(cratedb_target):
     singer_file_to_target(file_name, cratedb_target)
 
 
-def test_duplicate_records(cratedb_target, helper):
+def test_duplicate_records(cratedb_target):
     file_name = "duplicate_records.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {"id": 1, "metric": 100}
-    helper.verify_data("test_duplicate_records", 2, "id", row)
+    verify_data(cratedb_target, "test_duplicate_records", 2, "id", row)
 
 
-def test_array_boolean(cratedb_target, helper):
+def test_array_boolean(cratedb_target):
     file_name = "array_boolean.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {"id": 1, "value": [True, False]}
-    helper.verify_data("array_boolean", 3, "id", row)
-    helper.verify_schema(
+    verify_data(cratedb_target, "array_boolean", 3, "id", row)
+    verify_schema(
+        cratedb_target,
         "array_boolean",
         check_columns={
             "id": {"type": sa.BIGINT},
@@ -432,16 +462,18 @@ def test_array_boolean(cratedb_target, helper):
     )
 
 
+@pytest.mark.skip("pgvector patch did not land in upstream target-postgres yet")
 @pytest.mark.skipif(not MELTANO_CRATEDB_STRATEGY_DIRECT, reason="Does not work in temptable/upsert mode")
-def test_array_float_vector(cratedb_target, helper):
+def test_array_float_vector(cratedb_target):
     file_name = "array_float_vector.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {
         "id": 1,
         "value": [1.1, 2.1, 1.1, 1.3],
     }
-    helper.verify_data("array_float_vector", 3, "id", row)
-    helper.verify_schema(
+    verify_data(cratedb_target, "array_float_vector", 3, "id", row)
+    verify_schema(
+        cratedb_target,
         "array_float_vector",
         check_columns={
             "id": {"type": sa.BIGINT},
@@ -450,12 +482,13 @@ def test_array_float_vector(cratedb_target, helper):
     )
 
 
-def test_array_number(cratedb_target, helper):
+def test_array_number(cratedb_target):
     file_name = "array_number.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {"id": 1, "value": [42.42, 84.84, 23]}
-    helper.verify_data("array_number", 3, "id", row)
-    helper.verify_schema(
+    verify_data(cratedb_target, "array_number", 3, "id", row)
+    verify_schema(
+        cratedb_target,
         "array_number",
         check_columns={
             "id": {"type": sa.BIGINT},
@@ -464,12 +497,13 @@ def test_array_number(cratedb_target, helper):
     )
 
 
-def test_array_string(cratedb_target, helper):
+def test_array_string(cratedb_target):
     file_name = "array_string.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {"id": 1, "value": ["apple", "orange", "pear"]}
-    helper.verify_data("array_string", 4, "id", row)
-    helper.verify_schema(
+    verify_data(cratedb_target, "array_string", 4, "id", row)
+    verify_schema(
+        cratedb_target,
         "array_string",
         check_columns={
             "id": {"type": sa.BIGINT},
@@ -478,12 +512,13 @@ def test_array_string(cratedb_target, helper):
     )
 
 
-def test_array_timestamp(cratedb_target, helper):
+def test_array_timestamp(cratedb_target):
     file_name = "array_timestamp.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {"id": 1, "value": ["2023-12-13T01:15:02", "2023-12-13T01:16:02"]}
-    helper.verify_data("array_timestamp", 3, "id", row)
-    helper.verify_schema(
+    verify_data(cratedb_target, "array_timestamp", 3, "id", row)
+    verify_schema(
+        cratedb_target,
         "array_timestamp",
         check_columns={
             "id": {"type": sa.BIGINT},
@@ -492,7 +527,7 @@ def test_array_timestamp(cratedb_target, helper):
     )
 
 
-def test_object_mixed(cratedb_target, helper):
+def test_object_mixed(cratedb_target):
     file_name = "object_mixed.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {
@@ -509,8 +544,9 @@ def test_object_mixed(cratedb_target, helper):
             "nested_object": {"foo": "bar"},
         },
     }
-    helper.verify_data("object_mixed", 1, "id", row)
-    helper.verify_schema(
+    verify_data(cratedb_target, "object_mixed", 1, "id", row)
+    verify_schema(
+        cratedb_target,
         "object_mixed",
         check_columns={
             "id": {"type": sa.BIGINT},
@@ -519,7 +555,7 @@ def test_object_mixed(cratedb_target, helper):
     )
 
 
-def test_encoded_string_data(cratedb_target, helper):
+def test_encoded_string_data(cratedb_target):
     """
     We removed NUL characters from the original encoded_strings.singer as postgres doesn't allow them.
     https://www.postgresql.org/docs/current/functions-string.html#:~:text=chr(0)%20is%20disallowed%20because%20text%20data%20types%20cannot%20store%20that%20character.
@@ -534,11 +570,11 @@ def test_encoded_string_data(cratedb_target, helper):
     file_name = "encoded_strings.singer"
     singer_file_to_target(file_name, cratedb_target)
     row = {"id": 1, "info": "simple string 2837"}
-    helper.verify_data("test_strings", 11, "id", row)
+    verify_data(cratedb_target, "test_strings", 11, "id", row)
     row = {"id": 1, "info": {"name": "simple", "value": "simple string 2837"}}
-    helper.verify_data("test_strings_in_objects", 11, "id", row)
+    verify_data(cratedb_target, "test_strings_in_objects", 11, "id", row)
     row = {"id": 1, "strings": ["simple string", "απλή συμβολοσειρά", "简单的字串"]}
-    helper.verify_data("test_strings_in_arrays", 6, "id", row)
+    verify_data(cratedb_target, "test_strings_in_arrays", 6, "id", row)
 
 
 @pytest.mark.skip("Fails with: SQLParseException[Limit of total fields [1000] in index [melty.aapl] has been exceeded]")
@@ -628,7 +664,7 @@ def test_activate_version_hard_delete(cratedb_config):
     singer_file_to_target(file_name, pg_hard_delete_true)
     with engine.connect() as connection, connection.begin():
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
-        assert result.rowcount == 7
+        assert result.rowcount == 8
     with engine.connect() as connection, connection.begin():
         # Add a record like someone would if they weren't using the tap target combo
         result = connection.execute(
@@ -642,14 +678,14 @@ def test_activate_version_hard_delete(cratedb_config):
         connection.execute(sa.text(f"REFRESH TABLE {full_table_name}"))
     with engine.connect() as connection, connection.begin():
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
-        assert result.rowcount == 9
+        assert result.rowcount == 10
 
     singer_file_to_target(file_name, pg_hard_delete_true)
 
     # Should remove the 2 records we added manually
     with engine.connect() as connection, connection.begin():
         result = connection.execute(sa.text(f"SELECT * FROM {full_table_name}"))
-        assert result.rowcount == 7
+        assert result.rowcount == 8
 
 
 def test_activate_version_soft_delete(cratedb_target):
