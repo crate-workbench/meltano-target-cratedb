@@ -111,7 +111,7 @@ optional-dependencies.release = [
 ]
 optional-dependencies.test = [
   "pytest<9",
-  "pytest-cov<5",
+  "pytest-cov<8",
   "pytest-mock<4",
 ]
 optional-dependencies.vector = [
