@@ -35,7 +35,7 @@ license = { text = "MIT" }
 authors = [
   { name = "Andreas Motl", email = "andreas.motl@crate.io" },
 ]
-requires-python = ">=3.8,<3.13"
+requires-python = ">=3.10"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -55,11 +55,11 @@ classifiers = [
   "Operating System :: Unix",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: SQL",
   "Topic :: Adaptive Technologies",
   "Topic :: Communications",
@@ -89,10 +89,10 @@ dynamic = [
   "version",
 ]
 dependencies = [
-  "crate[sqlalchemy]<1",
   "cratedb-toolkit",
-  "importlib-resources; python_version<'3.9'",                                                                    # "meltanolabs-target-postgres==0.0.9",
-  "meltanolabs-target-postgres @ git+https://github.com/singer-contrib/meltanolabs-target-postgres.git@pgvector",
+  "importlib-resources; python_version<'3.9'", # "meltanolabs-target-postgres==0.0.9",
+  "meltanolabs-target-postgres>=0.6,<0.7",
+  "sqlalchemy-cratedb",
 ]
 optional-dependencies.all = [
   "meltano-target-cratedb[vector]",
@@ -113,10 +113,13 @@ optional-dependencies.test = [
   "pytest<9",
   "pytest-cov<8",
   "pytest-mock<4",
+  "tap-countries",
+  "tap-fundamentals",
 ]
-optional-dependencies.vector = [
-  "numpy",
-]
+# optional-dependencies.vector = [
+#   "meltanolabs-target-postgres @ git+https://github.com/singer-contrib/meltanolabs-target-postgres.git@pgvector",
+#   "sqlalchemy-cratedb[vector]",
+# ]
 urls.changelog = "https://github.com/crate-workbench/meltano-target-cratedb/blob/main/CHANGES.md"
 urls.documentation = "https://github.com/crate-workbench/meltano-target-cratedb"
 urls.homepage = "https://github.com/crate-workbench/meltano-target-cratedb"
@@ -125,6 +128,10 @@ scripts.target-cratedb = "target_cratedb.target:TargetCrateDB.cli"
 
 [tool.setuptools.packages.find]
 namespaces = false
+
+[tool.uv.sources]
+tap-countries = { git = "https://github.com/meltano/sdk.git", subdirectory = "packages/tap-countries", rev = "main" }
+tap-fundamentals = { git = "https://github.com/meltano/sdk.git", subdirectory = "packages/tap-fundamentals", rev = "main" }
 
 [tool.black]
 line-length = 120
