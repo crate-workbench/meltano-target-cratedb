@@ -93,6 +93,7 @@ dependencies = [
   "importlib-resources; python_version<'3.9'",                                                                    # "meltanolabs-target-postgres==0.0.9",
   "meltanolabs-target-postgres @ git+https://github.com/singer-contrib/meltanolabs-target-postgres.git@pgvector",
   "sqlalchemy-cratedb[vector]",
+  "verlib2<0.4",
 ]
 optional-dependencies.all = [
   "meltano-target-cratedb[vector]",
